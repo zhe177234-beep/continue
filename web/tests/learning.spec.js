@@ -22,6 +22,7 @@ test("register, upload, ask, practice and review", async ({ page }) => {
   await page
     .getByPlaceholder("例如：学习率如何影响梯度下降？")
     .fill("学习率如何影响梯度下降？");
+  await page.getByLabel('模型生成（需配置）').uncheck();
   await page.getByRole("button", { name: "检索并回答" }).click();
   await expect(
     page.getByRole("heading", { name: "资料中的原文证据" }),

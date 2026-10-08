@@ -3,6 +3,9 @@ services:
     build:
       context: .
       dockerfile: deploy/Dockerfile
+      args:
+        HTTP_PROXY: "${BUILD_HTTP_PROXY:-}"
+        HTTPS_PROXY: "${BUILD_HTTPS_PROXY:-}"
     environment:
       DATA_DIR: /app/data/v2
       ALLOW_REGISTRATION: "${ALLOW_REGISTRATION:-true}"

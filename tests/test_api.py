@@ -117,7 +117,7 @@ def test_validation_and_csrf(app):
         assert client.post(f'/api/bases/{base}/ask',json=data).status_code == 422
     assert client.post(f'/api/bases/{base}/ask',json={'question':'x','mode':'semantic'}).status_code == 400
     assert client.post(f'/api/bases/{base}/documents',files={'file':('bad.txt',b'\xff')}).status_code == 400
-    assert client.post(f'/api/bases/{base}/documents',files={'file':('large.txt',b'x'*(3*1024*1024+1))}).status_code in {400,413}
+    assert client.post(f'/api/bases/{base}/documents',files={'file':('large.txt',b'x'*(10*1024*1024+1))}).status_code in {400,413}
 
 
 def test_office_parsers_and_corrupt_pdf():
@@ -206,3 +206,24 @@ def test_concurrent_duplicate_ingestion(tmp_path):
         results=list(pool.map(lambda _:index.ingest('same.txt','梯度下降学习率'.encode()),range(4)))
     assert sum(not r['duplicate'] for r in results)==1
     assert len(index.documents())==1
+
+
+def test_actual_docx_exact_ten_mib_upload_boundary(app):
+    import zipfile
+    from docx import Document
+    from engine import MAX_FILE
+    client,base,_=seeded(app)
+    document=Document();document.add_paragraph('Learning rate controls gradient descent step size.')
+    buffer=io.BytesIO();document.save(buffer)
+    name='padding.bin'
+    overhead=30+len(name)+46+len(name)
+    padding=MAX_FILE-len(buffer.getvalue())-overhead
+    with zipfile.ZipFile(buffer,'a',compression=zipfile.ZIP_STORED) as archive:
+        archive.writestr(name,b'x'*padding)
+    payload=buffer.getvalue()
+    assert len(payload)==10*1024*1024
+    response=client.post(f'/api/bases/{base}/documents',files={'file':('ten-mib.docx',payload)})
+    assert response.status_code==201,response.text
+    assert response.json()['chunks']>0
+    rejected=client.post(f'/api/bases/{base}/documents',files={'file':('too-large.docx',payload+b'x')})
+    assert rejected.status_code in (400,413)

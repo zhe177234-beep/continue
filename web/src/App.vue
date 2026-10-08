@@ -7,12 +7,15 @@ import {
   onUnmounted,
 } from "vue";
 import Icon from "./components/Icon.vue";
+import CommunityPanel from "./components/CommunityPanel.vue";
+import AgentWorkbench from "./components/AgentWorkbench.vue";
 const PageDesigner = defineAsyncComponent(
   () => import("./components/PageDesigner.vue"),
 );
 const navigation = [
   { name: "问答", icon: "chat", subtitle: "从资料中找到答案" },
   { name: "知识关系", icon: "graph", subtitle: "连接课程中的知识点" },
+  { name: "自主任务", icon: "spark", subtitle: "让多个学习助手协作" },
   { name: "练习", icon: "check", subtitle: "用练习检查理解" },
   { name: "学习记录", icon: "chart", subtitle: "找到下一步的方向" },
   { name: "学习卡片", icon: "layout", subtitle: "自由排版你的学习页面" },
@@ -27,6 +30,8 @@ const user = ref(null),
   newName = ref(""),
   documents = ref([]),
   graph = ref([]),
+  communities = ref({ status: {}, communities: [] }),
+  pendingQuestion = ref(null),
   history = ref([]),
   progress = ref({ mastery: [], mistakes: [], path: [] }),
   quizzes = ref([]),
@@ -59,7 +64,11 @@ const filteredGraph = computed(() =>
 function jobMessage(j) {
   if (j.result.error) return j.result.error;
   if (j.status === "queued") return "等待执行";
-  if (j.status === "running") return "正在处理资料，可继续使用其他页面";
+  if (j.status === "cancelled") return "任务已停止";
+  if (j.status === "running") return `${j.result.stage || '正在处理资料'}${j.result.total ? ` · ${j.result.completed || 0}/${j.result.total}` : ''}`;
+  if (j.kind === 'graphrag') return `完成 ${j.result.entities || 0} 个实体、${j.result.communities || 0} 个社区`;
+  if (j.kind === 'graph-query') return '全局检索已完成';
+  if (j.kind === 'agents') return j.result.outcome === 'completed' ? '自主任务已完成' : '请在自主任务页查看结果';
   return j.kind === "index"
     ? `完成 ${j.result.indexed || 0} 个片段的语义索引`
     : `新增 ${j.result.added || 0} 条关系，请核对原文`;
@@ -123,21 +132,24 @@ async function refresh() {
   if (!active.value) return;
   const id = active.value,
     v = ++generation;
-  const [d, g, h, p] = await Promise.all([
+  const [d, g, h, p, c] = await Promise.all([
     api(path() + "/documents"),
     api(path() + "/graph"),
     api(path() + "/history"),
     api(path() + "/progress"),
+    api(path() + "/graphrag"),
   ]);
   if (id !== active.value || v !== generation) return;
   documents.value = d;
   graph.value = g;
   history.value = h;
   progress.value = p;
+  communities.value = c;
 }
 async function selectBase() {
   conversation.value = null;
   jobs.value = [];
+  pendingQuestion.value = null;
   answer.value = null;
   quizzes.value = [];
   results.value = {};
@@ -180,6 +192,8 @@ async function logout() {
     bases.value = [];
     documents.value = [];
     graph.value = [];
+    communities.value = { status: {}, communities: [] };
+    pendingQuestion.value = null;
     history.value = [];
     answer.value = null;
     quizzes.value = [];
@@ -201,8 +215,8 @@ async function createBase() {
 async function upload() {
   await task(async () => {
     if (!file.value) throw new Error("请先选择资料");
-    if (file.value.size > 3 * 1024 * 1024)
-      throw new Error("文件不能超过 3 MiB");
+    if (file.value.size > 10 * 1024 * 1024)
+      throw new Error("文件不能超过 10 MiB");
     const body = new FormData();
     body.append("file", file.value);
     const r = await api(path() + "/documents", body);
@@ -230,6 +244,20 @@ async function runJob(kind) {
     status.value = "任务已排队，可在下方查看进度";
   });
 }
+async function buildGraph(body) {
+  await task(async () => {
+    await api(path() + '/graphrag/build', body);
+    await pollJobs();
+    status.value = 'GraphRAG 构建已排队，请查看后台任务。';
+  });
+}
+async function stopJob(id) {
+  await task(async () => {
+    await api(path() + '/jobs/' + id, undefined, 'DELETE');
+    await pollJobs();
+    status.value = '已请求停止，当前模型调用结束后生效。';
+  });
+}
 async function indexVectors() {
   await runJob("index");
 }
@@ -240,9 +268,21 @@ async function pollJobs() {
   const next = await api(path() + "/jobs");
   if (id !== active.value) return;
   jobs.value = next;
+  let completedQuestion = false;
+  if (pendingQuestion.value?.base === id) {
+    const queryJob = next.find(j => j.id === pendingQuestion.value.id);
+    if (queryJob && !['queued', 'running'].includes(queryJob.status)) {
+      pendingQuestion.value = null;
+      if (queryJob.status === 'succeeded') {
+        answer.value = queryJob.result;
+        conversation.value = answer.value.conversation_id;
+        completedQuestion = true;
+      } else status.value = queryJob.result.error || '检索已停止';
+    }
+  }
   if (
-    previous.some((j) => ["queued", "running"].includes(j.status)) &&
-    !next.some((j) => ["queued", "running"].includes(j.status))
+    completedQuestion || (previous.some((j) => ["queued", "running"].includes(j.status)) &&
+    !next.some((j) => ["queued", "running"].includes(j.status)))
   ) {
     await refresh();
     status.value = "后台任务已结束，请查看任务结果";
@@ -256,6 +296,16 @@ function newConversation() {
 }
 async function ask() {
   await task(async () => {
+    if (mode.value === 'graphrag-global') {
+      const id = active.value;
+      const job = await api(path() + '/graphrag/query', {
+        question: question.value, mode: 'global', generate: generate.value, conversation_id: conversation.value,
+      });
+      pendingQuestion.value = { base: id, id: job.id };
+      await pollJobs();
+      status.value = '正在汇总知识社区，结果完成后会自动显示。';
+      return;
+    }
     answer.value = await api(path() + "/ask", {
       question: question.value,
       mode: mode.value,
@@ -473,7 +523,7 @@ onMounted(async () => {
               :disabled="busy"
               @change="chooseFile"
           /></label>
-          <p class="hint upload-hint">每份最多 3 MiB；图片需启用 OCR。</p>
+          <p class="hint upload-hint">每份最多 10 MiB；图片需启用 OCR。</p>
           <button class="full" :disabled="busy" @click="upload">
             <Icon name="plus" :size="16" />上传并建立索引</button
           ><button
@@ -514,16 +564,18 @@ onMounted(async () => {
               :class="j.status"
             >
               <strong
-                >{{ j.kind === "index" ? "语义索引" : "关系提取" }} ·
+                >{{ { index: '语义索引', relations: '关系提取', graphrag: 'GraphRAG', 'graph-query': '全局检索', agents: '自主任务' }[j.kind] || j.kind }} ·
                 {{
                   {
                     queued: "排队中",
                     running: "执行中",
                     succeeded: "完成",
                     failed: "失败",
+                    cancelled: "已停止",
                   }[j.status]
                 }}</strong
               >
+              <button v-if="['queued','running'].includes(j.status)" class="link" :disabled="busy || !!j.cancel_requested" @click="stopJob(j.id)">{{ j.cancel_requested ? '停止中' : '停止' }}</button>
               <p class="hint">{{ jobMessage(j) }}</p>
             </div>
           </details>
@@ -638,13 +690,15 @@ onMounted(async () => {
                     <option value="cosine">词频余弦</option>
                     <option value="graph">关系增强</option>
                     <option value="semantic">语义向量</option>
+                    <option value="graphrag-local">GraphRAG 局部检索</option>
+                    <option value="graphrag-global">GraphRAG 全局汇总</option>
                   </select></label
                 ><label class="check"
                   ><input
                     v-model="generate"
                     type="checkbox"
                   />模型生成（需配置）</label
-                ><button :disabled="busy">
+                ><button :disabled="busy || !!pendingQuestion">
                   <Icon name="search" :size="16" />检索并回答
                 </button>
               </div>
@@ -662,6 +716,7 @@ onMounted(async () => {
                 <span class="pill">{{ answer.mode }}</span>
               </div>
               <p class="pre">{{ answer.answer }}</p>
+              <p v-if="answer.graph_context?.communities_total" class="hint">已扫描 {{ answer.graph_context.communities_scanned }}/{{ answer.graph_context.communities_total }} 个社区，保留 {{ answer.sources.length }} 个原文片段。</p>
               <div class="answer-note">
                 <Icon name="shield" :size="16" />
                 <p>引用编号可帮助核对来源，回答仍需对照原文确认。</p>
@@ -775,8 +830,11 @@ onMounted(async () => {
               }}
             </p>
           </div>
-        </article></template
+        </article>
+        <CommunityPanel :data="communities" :busy="busy" :enabled="health.chat_model_configured && !!active" @build="buildGraph" />
+        </template
       >
+      <AgentWorkbench v-else-if="tab === '自主任务'" :key="active" :base-id="active" :enabled="health.chat_model_configured" @changed="refresh" />
       <template v-else-if="tab === '练习'"
         ><article class="panel practice-setup">
           <div class="section-heading">

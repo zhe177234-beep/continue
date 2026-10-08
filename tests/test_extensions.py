@@ -77,7 +77,7 @@ def test_jobs_authorization_completion_and_restart(tmp_path):
         time.sleep(.01)
     assert jobs[0]['status']=='succeeded'
     with app.state.store.db() as db:
-        db.execute("INSERT INTO jobs VALUES('interrupted',?,'index','running','{}',9999999999)",(base,))
+        db.execute("INSERT INTO jobs(id,base_id,kind,status,result,created) VALUES('interrupted',?,'index','running','{}',9999999999)",(base,))
     restarted=Jobs(app.state.store)
     assert restarted.list(base)[0]['status']=='failed'
     restarted.pool.shutdown()

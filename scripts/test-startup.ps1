@@ -34,6 +34,9 @@ try {
     Write-Host 'PowerShell syntax, configuration backup, model replacement and startup logic passed. Docker is mocked; this is not a Windows container deployment test.'
 } finally {
     Set-Location $taskRoot
-    Remove-Item $taskDir -Recurse -Force
+    $resolvedTaskDir = [System.IO.Path]::GetFullPath($taskDir)
+    $resolvedTempRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
+    if (-not $resolvedTaskDir.StartsWith($resolvedTempRoot,[System.StringComparison]::OrdinalIgnoreCase) -or (Split-Path $resolvedTaskDir -Leaf) -notmatch '^zhixue-check-[0-9a-f]{32}$') { throw 'Unsafe temporary cleanup path' }
+    Remove-Item -LiteralPath $resolvedTaskDir -Recurse -Force
     Remove-Item function:\docker,function:\Invoke-RestMethod,function:\Start-Process
 }

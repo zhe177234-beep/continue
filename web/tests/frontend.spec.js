@@ -48,6 +48,8 @@ test("GrapesJS blocks, draft restore, devices, sources and standalone export", a
   await page
     .getByPlaceholder("例如：学习率如何影响梯度下降？")
     .fill("梯度下降学习率");
+  // This checks the editor's citation workflow; real model latency is tested separately.
+  await page.getByLabel("模型生成（需配置）").uncheck();
   await page.getByRole("button", { name: "检索并回答" }).click();
   await expect(page.locator(".source").first()).toBeVisible();
   await page.getByRole("button", { name: "学习卡片" }).click();

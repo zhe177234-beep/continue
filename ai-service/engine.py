@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-MAX_FILE = 3 * 1024 * 1024
+MAX_FILE = 10 * 1024 * 1024
 
 
 def tokens(text):
@@ -26,7 +26,7 @@ def tokens(text):
 
 def parse_document(name, data):
     if not data or len(data) > MAX_FILE:
-        raise ValueError("文件为空或超过 3 MiB")
+        raise ValueError("文件为空或超过 10 MiB")
     suffix = Path(name).suffix.lower()
     if suffix in {".txt", ".md"}:
         try:
@@ -125,6 +125,13 @@ class Engine:
                 CREATE TABLE IF NOT EXISTS embeddings(
                   chunk_id TEXT PRIMARY KEY REFERENCES chunks(id) ON DELETE CASCADE,
                   model TEXT NOT NULL, vector TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS graph_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS graph_entities(
+                  id TEXT PRIMARY KEY,name TEXT NOT NULL,aliases TEXT NOT NULL,
+                  chunk_ids TEXT NOT NULL,description TEXT NOT NULL,vector TEXT);
+                CREATE TABLE IF NOT EXISTS graph_communities(
+                  id TEXT PRIMARY KEY,level INTEGER NOT NULL,parent_id TEXT,
+                  entity_ids TEXT NOT NULL,chunk_ids TEXT NOT NULL,report TEXT NOT NULL);
             """)
 
     def connect(self):
@@ -158,6 +165,7 @@ class Engine:
                 raise ValueError("演示知识库最多容纳 2000 个分块，请删除旧资料后重试")
             db.execute("INSERT INTO documents(id,name,digest) VALUES(?,?,?)", (doc_id, name, digest))
             db.executemany("INSERT INTO chunks VALUES(?,?,?,?,?)", chunks)
+            self.invalidate_graph(db)
             # Explicit triples only; never invent automatic semantic relations.
             for chunk_id, _, _, _, text in chunks:
                 for line in text.splitlines():
@@ -172,7 +180,16 @@ class Engine:
 
     def delete(self, doc_id):
         with self.connect() as db:
-            return db.execute("DELETE FROM documents WHERE id=?", (doc_id,)).rowcount > 0
+            deleted = db.execute("DELETE FROM documents WHERE id=?", (doc_id,)).rowcount > 0
+            if deleted: self.invalidate_graph(db)
+            return deleted
+
+    @staticmethod
+    def invalidate_graph(db):
+        # Reports contain quotations, so deletion must remove derived copies too.
+        db.execute('DELETE FROM graph_meta')
+        db.execute('DELETE FROM graph_entities')
+        db.execute('DELETE FROM graph_communities')
 
     def graph(self):
         with self.connect() as db:

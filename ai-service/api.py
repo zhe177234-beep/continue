@@ -17,6 +17,8 @@ from store import Store
 from retrieval import retrieve, reindex
 from jobs import Jobs, extract_relations
 from learning import generate_quiz, submit, progress
+from graphrag import build as build_graph, query as query_graph, status as graph_status, reports as graph_reports, snapshot
+from agents import run as run_agents
 
 
 class Credentials(BaseModel):
@@ -35,7 +37,7 @@ class BaseInput(BaseModel):
 
 class Question(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
-    mode: Literal['auto', 'bm25', 'cosine', 'hybrid', 'graph', 'semantic'] = 'auto'
+    mode: Literal['auto', 'bm25', 'cosine', 'hybrid', 'graph', 'semantic', 'graphrag-local', 'graphrag-global'] = 'auto'
     k: int = Field(default=5, ge=1, le=10, strict=True)
     generate: bool = True
     conversation_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
@@ -50,10 +52,36 @@ class Submission(BaseModel):
     selected: StrictInt | list[StrictInt] | StrictStr
 
 
+class GraphBuild(BaseModel):
+    extract: bool = True
+    max_calls: int = Field(default=256,ge=1,le=512,strict=True)
+
+
+class GraphQuestion(BaseModel):
+    question: str = Field(min_length=1,max_length=1000)
+    mode: Literal['local','global'] = 'global'
+    k: int = Field(default=10,ge=1,le=20,strict=True)
+    generate: bool = True
+    conversation_id: str | None = Field(default=None,pattern=r'^[0-9a-f]{32}$')
+    level: int = Field(default=0,ge=0,le=20,strict=True)
+
+
+class AgentGoal(BaseModel):
+    goal: str = Field(min_length=1,max_length=1000)
+    max_steps: int = Field(default=4,ge=1,le=8,strict=True)
+    conversation_id: str | None = Field(default=None,pattern=r'^[0-9a-f]{32}$')
+
+    @field_validator('goal')
+    @classmethod
+    def goal_not_blank(cls, value):
+        if not value.strip(): raise ValueError('目标不能为空')
+        return value.strip()
+
+
 def create_app(directory=None, model=None):
     store = Store(directory or os.getenv('DATA_DIR', str(Path(__file__).resolve().parent.parent / 'data' / 'v2')))
     model = model or Ollama()
-    app = FastAPI(title='智学学习知识系统', version='0.3.0')
+    app = FastAPI(title='智学学习知识系统', version='0.4.0')
     app.state.store = store
     jobs = Jobs(store)
     app.state.jobs = jobs
@@ -113,7 +141,8 @@ def create_app(directory=None, model=None):
 
     @app.get('/api/health')
     def health():
-        return {'status': 'ok', 'version': '0.3.0', 'chat_model_configured': bool(model.model), 'embedding_model_configured': bool(model.embedding_model)}
+        return {'status': 'ok', 'version': '0.4.0', 'chat_model_configured': bool(model.model), 'embedding_model_configured': bool(model.embedding_model),
+                'features':['community-graphrag','autonomous-multi-agent']}
 
     @app.post('/api/auth/register', status_code=201)
     def register(body: Credentials, request: Request):
@@ -163,10 +192,70 @@ def create_app(directory=None, model=None):
         with store.db() as db:
             db.execute('DELETE FROM quizzes WHERE base_id=? AND source LIKE ?', (base_id, doc_id + ':%'))
             db.execute('DELETE FROM history WHERE base_id=?', (base_id,))
+            db.execute("UPDATE jobs SET cancel_requested=1,result='{}' WHERE base_id=? AND kind IN ('agents','graph-query','graphrag')",(base_id,))
         return {'deleted': True}
 
     @app.get('/api/bases/{base_id}/graph')
     def graph(index=Depends(engine)): return index.graph()
+
+    @app.get('/api/bases/{base_id}/graphrag')
+    def communities(index=Depends(engine)): return graph_reports(index,model)
+
+    @app.post('/api/bases/{base_id}/graphrag/build', status_code=202)
+    def build_communities(base_id: str, body: GraphBuild, index=Depends(engine)):
+        if not model.model: raise ValueError('请先配置生成模型')
+        return jobs.start(base_id,'graphrag',lambda context: build_graph(index,model,context,body.extract,body.max_calls),
+                          controlled=True,initial={'stage':'等待构建'},seconds=1800)
+
+    @app.post('/api/bases/{base_id}/graphrag/query', status_code=202)
+    def global_question(base_id: str, body: GraphQuestion, index=Depends(engine)):
+        if not graph_status(index,model)['ready']: raise ValueError('请先构建 GraphRAG 索引')
+        conversation_id = store.conversation(base_id,body.conversation_id)
+        turns = store.turns(base_id,conversation_id)
+        revision = snapshot(index)[2]
+        def execute(context):
+            result = query_graph(index,model,body.question,body.mode,body.k,body.generate,turns,context,body.level)
+            context.check()
+            result['conversation_id'] = conversation_id
+            with index.connect() as db:
+                db.execute('BEGIN IMMEDIATE')
+                context.check()
+                if snapshot(index)[2]!=revision: raise ValueError('资料已变化，请重新提问')
+                store.history(base_id,body.question,result)
+            return result
+        return jobs.start(base_id,'graph-query',execute,controlled=True,initial={'stage':'等待检索','question':body.question},seconds=1200)
+
+    @app.post('/api/bases/{base_id}/agents/runs', status_code=202)
+    def agent_goal(base_id: str, body: AgentGoal, index=Depends(engine)):
+        if not model.model: raise ValueError('请先配置生成模型')
+        conversation_id = store.conversation(base_id,body.conversation_id)
+        turns = store.turns(base_id,conversation_id)
+        revision = snapshot(index)[2]
+        def execute(context):
+            result = run_agents(index,model,body.goal,body.max_steps,context,lambda:progress(store,index,base_id),turns)
+            context.check()
+            result['conversation_id'] = conversation_id
+            with index.connect() as db:
+                db.execute('BEGIN IMMEDIATE')
+                context.check()
+                if snapshot(index)[2]!=revision: raise ValueError('资料已变化，请重新启动任务')
+                store.history(base_id,body.goal,result)
+            return result
+        return jobs.start(base_id,'agents',execute,controlled=True,initial={'goal':body.goal,'trace':[]},seconds=1200)
+
+    @app.get('/api/bases/{base_id}/agents/runs')
+    def agent_runs(base_id: str, index=Depends(engine)):
+        return [j for j in jobs.list(base_id) if j['kind']=='agents']
+
+    @app.get('/api/bases/{base_id}/jobs/{job_id}')
+    def get_job(base_id: str, job_id: str, index=Depends(engine)):
+        try: return jobs.get(base_id,job_id)
+        except LookupError: raise HTTPException(404,'任务不存在') from None
+
+    @app.delete('/api/bases/{base_id}/jobs/{job_id}')
+    def stop_job(base_id: str, job_id: str, index=Depends(engine)):
+        try: return jobs.cancel(base_id,job_id)
+        except LookupError: raise HTTPException(404,'任务不存在') from None
 
     @app.post('/api/bases/{base_id}/index')
     def index_vectors(index=Depends(engine)):
@@ -180,7 +269,7 @@ def create_app(directory=None, model=None):
     def start_job(base_id: str, kind: Literal['index','relations'], index=Depends(engine)):
         if kind == 'index' and not model.embedding_model: raise ValueError('未配置向量模型')
         if kind == 'relations' and not model.model: raise ValueError('未配置生成模型')
-        return jobs.start(base_id, kind, lambda: reindex(index,model) if kind == 'index' else extract_relations(index,model))
+        return jobs.start(base_id, kind, lambda context: reindex(index,model) if kind == 'index' else extract_relations(index,model,context),controlled=True,seconds=1800)
 
     @app.post('/api/bases/{base_id}/ask')
     def ask(base_id: str, body: Question, index=Depends(engine)):
@@ -189,6 +278,11 @@ def create_app(directory=None, model=None):
         # Follow-up pronouns need prior questions to locate evidence, with a hard bound.
         followup = any(word in body.question for word in ('它','这个','上述','继续','为什么','举例','再解释'))
         query = (turns[-1]['question'][:500] + '\n' + body.question[:499]) if turns and followup else body.question
+        if body.mode in ('graphrag-local','graphrag-global'):
+            result = query_graph(index,model,query,body.mode.removeprefix('graphrag-'),body.k,body.generate,turns)
+            result.update(conversation_id=conversation_id,retrieval_query=query)
+            store.history(base_id,body.question,result)
+            return result
         result = retrieve(index, model, query, body.mode, body.k)
         result['conversation_id'] = conversation_id
         result['retrieval_query'] = query

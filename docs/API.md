@@ -1,4 +1,4 @@
-# v0.3 API
+# v0.4 API
 
 Docker 地址 http://localhost:8080；直接开发服务 http://127.0.0.1:8000。FastAPI 的 /docs 提供交互式接口文档。登录后由 HttpOnly session Cookie 鉴权，24 小时过期；POST 使用 JSON（上传除外）。错误一般为 `{"detail":"说明"}`，参数校验可能为 detail 数组。
 
@@ -14,6 +14,13 @@ Docker 地址 http://localhost:8080；直接开发服务 http://127.0.0.1:8000�
 | POST | /api/bases/{id}/documents | multipart/form-data，字段 file |
 | DELETE | /api/bases/{id}/documents/{doc} | 删除资料及相关索引、练习与历史 |
 | GET | /api/bases/{id}/graph | 知识关系与 chunk_id |
+| GET | /api/bases/{id}/graphrag | 索引状态、分层社区与带原文的报告 |
+| POST | /api/bases/{id}/graphrag/build | extract（默认 true）、max_calls（默认 256，1–512）；202 返回任务 ID |
+| POST | /api/bases/{id}/graphrag/query | question、mode（local/global）、k（1–20）、generate、level（默认 0）、conversation_id；202 返回任务 ID |
+| POST | /api/bases/{id}/agents/runs | goal（1–1000 字符）、max_steps（1–8，默认 4）、conversation_id；202 返回任务 ID |
+| GET | /api/bases/{id}/agents/runs | 当前库最近任务中的自主 Agent 运行记录 |
+| GET | /api/bases/{id}/jobs/{job} | 单个任务状态、进度、事件轨迹和最终结果 |
+| DELETE | /api/bases/{id}/jobs/{job} | 请求停止，当前模型调用结束后生效 |
 | POST | /api/bases/{id}/index | 空 JSON，用当前向量模型重新建立索引 |
 | GET | /api/bases/{id}/jobs | 最近 20 个后台任务，含状态和结果 |
 | POST | /api/bases/{id}/jobs/{kind} | kind 为 index/relations，202 返回任务 ID；页面使用此接口 |
@@ -23,7 +30,7 @@ Docker 地址 http://localhost:8080；直接开发服务 http://127.0.0.1:8000�
 | POST | /api/bases/{id}/quizzes/{quiz}/submit | selected：单选/判断传整数索引，多选传整数数组，填空/简答传字符串；每题限首次提交 |
 | GET | /api/bases/{id}/progress | mastery、mistakes、path（含 prerequisites）、prerequisite_cycle、method |
 
-mode 为 auto/bm25/cosine/hybrid/graph/semantic。默认 auto；generate 默认 true，仅配置模型时调用。未配置语义模型时 semantic 返回 400，其他模式保持离线工作。
+mode 为 auto/bm25/cosine/hybrid/graph/semantic/graphrag-local/graphrag-global。默认 auto；generate 默认 true。GraphRAG 模式需先构建，长时间全局检索推荐使用后台 /graphrag/query，网页采用该方式。未配置语义模型时 semantic 返回 400，基础模式保持离线工作。
 
 问答响应含 mode、answer、answer_kind（extractive/generated）、sources 与可选 warning。sources 包含 chunk_id、document_id、name、page、text、score。score 不是可信度概率；自动路由包含关系/关联/依赖/前置关键词时选择 graph，否则 hybrid。
 
@@ -36,6 +43,8 @@ mode 为 auto/bm25/cosine/hybrid/graph/semantic。默认 auto；generate 默认 
 
 追问的 conversation_id 必须属于当前知识库。模型最多接收最近 4 轮，指代式追问使用上一问题辅助检索；当前证据仍重新检索。未传 ID 就建立新对话。资料删除清空该库历史，避免旧引用继续参与上下文。
 
-任务状态为 queued/running/succeeded/failed；队列最多 8 个待处理任务，每个库同时只允许 1 个；失败或重启中断可重新提交。旧同步 /index 接口保留兼容，长任务推荐 jobs/index。
+任务状态为 queued/running/succeeded/failed/cancelled；队列最多 8 个待处理任务，每个库同时只允许 1 个。result 保存 stage、completed/total 或 trace，以及最终结果。GraphRAG 构建和关系提取限 1800 秒，查询与 Agent 限 1200 秒；每个模型请求限 90 秒。失败或重启中断可重新提交。
+
+删除资料会清除 GraphRAG 派生报告、实体索引、问答历史和相关自主任务结果，并请求停止仍在运行的派生任务。模型变化、资料变化或关系变化使旧索引不可查询。GraphRAG 构建以写事务发布，失败不发布半成品。
 
 简答批改返回 score（0–1）和 grading_method；仅按主题、关系和对象关键词覆盖评分，不理解逻辑或同义改写。首次提交使用写事务避免并发重复计分。
