@@ -7,6 +7,8 @@ import re
 import sqlite3
 import os
 import zipfile
+import subprocess
+import tempfile
 from pathlib import Path
 
 MAX_FILE = 3 * 1024 * 1024
@@ -43,10 +45,25 @@ def parse_document(name, data):
             if len(reader.pages) > 100:
                 raise ValueError("PDF 不能超过 100 页")
             pages = [(i + 1, p.extract_text() or "") for i, p in enumerate(reader.pages)]
+            blank = [i for i, (_,text) in enumerate(pages) if not text.strip()]
+            if blank and os.getenv('ENABLE_OCR', 'false').lower() == 'true':
+                if len(blank)>20: raise ValueError('扫描 PDF 每次最多 OCR 20 页，请拆分文件')
+                from PIL import Image
+                import pytesseract
+                with tempfile.TemporaryDirectory(prefix='zhixue-pdf-') as folder:
+                    pdf_path = Path(folder)/'source.pdf'
+                    pdf_path.write_bytes(data)
+                    for i in blank:
+                        output = Path(folder)/'page'
+                        subprocess.run(['pdftoppm','-f',str(i+1),'-l',str(i+1),'-singlefile','-scale-to','1800','-png',str(pdf_path),str(output)],check=True,timeout=20,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+                        with Image.open(str(output)+'.png') as image:
+                            text = pytesseract.image_to_string(image,lang=os.getenv('OCR_LANG','chi_sim+eng'),timeout=20)
+                        pages[i]=(i+1,text)
+
         except ValueError:
             raise
         except Exception:
-            raise ValueError("PDF 解析失败，请检查文件") from None
+            raise ValueError("PDF 解析或扫描页 OCR 失败，请检查文件、Poppler 和 OCR 语言包") from None
     elif suffix in {'.docx', '.pptx'}:
         try:
             with zipfile.ZipFile(io.BytesIO(data)) as archive:
@@ -86,7 +103,7 @@ def parse_document(name, data):
     if sum(len(t) for _, t in pages) > 1_000_000:
         raise ValueError("解析后的文本过大")
     if not any(t.strip() for _, t in pages):
-        raise ValueError("未提取到文本；扫描 PDF 需要 OCR，目前尚未支持")
+        raise ValueError("未提取到文本；扫描 PDF 需启用 OCR 并安装 Poppler/Tesseract")
     return pages
 
 
@@ -196,8 +213,16 @@ class Engine:
             scores = cosine
         elif mode == "graph":
             seeds = {r[key] for r in relations for key in ["subject", "object"] if r[key] in question}
-            edges = [r for r in relations if r["subject"] in seeds or r["object"] in seeds]
-            evidence_ids = {r["chunk_id"] for r in edges}
+            evidence_ids = set()
+            frontier = seeds
+            visited = set(seeds)
+            # Bounded two-hop expansion, retaining source chunks for every edge.
+            for _ in range(2):
+                edges = [r for r in relations if r["subject"] in frontier or r["object"] in frontier]
+                evidence_ids.update(r["chunk_id"] for r in edges)
+                adjacent = {r[key] for r in edges for key in ("subject", "object")}
+                frontier = adjacent - visited
+                visited.update(adjacent)
             scores = [s + (.1 if row["id"] in evidence_ids else 0) for row, s in zip(rows, scores)]
         ordered = sorted(range(len(rows)), key=lambda i: (-scores[i], rows[i]["id"]))
         sources = []

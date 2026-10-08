@@ -23,7 +23,7 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: maven
-      - run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
+      - run: sudo apt-get update && sudo apt-get install -y tesseract-ocr poppler-utils
       - run: python -m pip install -r requirements-dev.txt
       - run: python -m pytest -q tests
       - run: python ai-service/evaluate.py
@@ -51,3 +51,27 @@ jobs:
         if: always()
       - run: docker compose down -v
         if: always()
+
+  real-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - run: docker run -d --name model -p 127.0.0.1:11434:11434 ollama/ollama:latest
+      - run: |
+          for i in $(seq 1 30); do
+            if docker exec model ollama list; then break; fi
+            sleep 2
+          done
+          docker exec model ollama pull qwen3:0.6b
+          docker exec model ollama pull qwen3-embedding:0.6b
+      - run: python scripts/model_smoke.py
+        env:
+          CHAT_MODEL: qwen3:0.6b
+          EMBEDDING_MODEL: qwen3-embedding:0.6b
+      - run: docker logs model
+        if: failure()

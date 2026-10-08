@@ -10,11 +10,12 @@ from typing import Literal
 from urllib.parse import urlsplit
 from fastapi import FastAPI, Depends, HTTPException, Request, Response, UploadFile
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, StrictInt, StrictStr
 from engine import Engine, MAX_FILE
 from models import Ollama
 from store import Store
 from retrieval import retrieve, reindex
+from jobs import Jobs, extract_relations
 from learning import generate_quiz, submit, progress
 
 
@@ -37,14 +38,16 @@ class Question(BaseModel):
     mode: Literal['auto', 'bm25', 'cosine', 'hybrid', 'graph', 'semantic'] = 'auto'
     k: int = Field(default=5, ge=1, le=10, strict=True)
     generate: bool = True
+    conversation_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
 
 
 class QuizInput(BaseModel):
+    kind: Literal['single','multiple','judge','short'] = 'single'
     count: int = Field(default=5, ge=1, le=10, strict=True)
 
 
 class Submission(BaseModel):
-    selected: int = Field(ge=0, le=3, strict=True)
+    selected: StrictInt | list[StrictInt] | StrictStr
 
 
 def create_app(directory=None, model=None):
@@ -52,6 +55,8 @@ def create_app(directory=None, model=None):
     model = model or Ollama()
     app = FastAPI(title='智学学习知识系统', version='0.2.0')
     app.state.store = store
+    jobs = Jobs(store)
+    app.state.jobs = jobs
     limiter = defaultdict(list)
     limit_lock = threading.Lock()
     secure_cookie = os.getenv('COOKIE_SECURE', 'false').lower() == 'true'
@@ -168,14 +173,30 @@ def create_app(directory=None, model=None):
         try: return reindex(index, model)
         except Exception: raise HTTPException(503, '语义索引失败，请检查 Ollama、模型名称和内存') from None
 
+    @app.get('/api/bases/{base_id}/jobs')
+    def list_jobs(base_id: str, index=Depends(engine)): return jobs.list(base_id)
+
+    @app.post('/api/bases/{base_id}/jobs/{kind}', status_code=202)
+    def start_job(base_id: str, kind: Literal['index','relations'], index=Depends(engine)):
+        if kind == 'index' and not model.embedding_model: raise ValueError('未配置向量模型')
+        if kind == 'relations' and not model.model: raise ValueError('未配置生成模型')
+        return jobs.start(base_id, kind, lambda: reindex(index,model) if kind == 'index' else extract_relations(index,model))
+
     @app.post('/api/bases/{base_id}/ask')
     def ask(base_id: str, body: Question, index=Depends(engine)):
-        result = retrieve(index, model, body.question, body.mode, body.k)
+        conversation_id = store.conversation(base_id, body.conversation_id)
+        turns = store.turns(base_id, conversation_id)
+        # Follow-up pronouns need prior questions to locate evidence, with a hard bound.
+        followup = any(word in body.question for word in ('它','这个','上述','继续','为什么','举例','再解释'))
+        query = (turns[-1]['question'][:500] + '\n' + body.question[:499]) if turns and followup else body.question
+        result = retrieve(index, model, query, body.mode, body.k)
+        result['conversation_id'] = conversation_id
+        result['retrieval_query'] = query
         result['answer_kind'] = 'extractive'
         result['answer'] = '\n\n'.join(f'[{i}] {s["text"]}' for i,s in enumerate(result['sources'],1)) if result['sources'] else '资料中没有找到足够相关的证据，请补充资料或更具体地提问。'
         if body.generate and model.model and result['sources']:
             try:
-                result['answer'] = model.generate(body.question, result['sources'])
+                result['answer'] = model.generate(body.question, result['sources'], history=turns) if turns else model.generate(body.question, result['sources'])
                 result['answer_kind'] = 'generated'
                 result['warning'] = '引用编号已校验，回答事实仍需对照原文核实'
             except Exception:
@@ -187,7 +208,7 @@ def create_app(directory=None, model=None):
     def history(base_id: str, index=Depends(engine)): return store.history(base_id)
 
     @app.post('/api/bases/{base_id}/quizzes')
-    def quizzes(base_id: str, body: QuizInput, index=Depends(engine)): return generate_quiz(store, index, base_id, body.count)
+    def quizzes(base_id: str, body: QuizInput, index=Depends(engine)): return generate_quiz(store, index, base_id, body.count, body.kind)
 
     @app.post('/api/bases/{base_id}/quizzes/{quiz_id}/submit')
     def grade(base_id: str, quiz_id: str, body: Submission, index=Depends(engine)):

@@ -31,6 +31,24 @@ class Store:
               selected INTEGER, correct INTEGER, created REAL);
             ''')
 
+            columns = {r[1] for r in db.execute('PRAGMA table_info(quizzes)')}
+            if 'kind' not in columns:
+                db.execute("ALTER TABLE quizzes ADD COLUMN kind TEXT NOT NULL DEFAULT 'single'")
+
+    def conversation(self, base_id, conversation_id=None):
+        with self.db() as db:
+            db.execute('CREATE TABLE IF NOT EXISTS conversations(id TEXT PRIMARY KEY,base_id TEXT,created REAL)')
+            if conversation_id:
+                if not db.execute('SELECT 1 FROM conversations WHERE id=? AND base_id=?', (conversation_id,base_id)).fetchone():
+                    raise ValueError('对话不存在或不属于当前知识库')
+                return conversation_id
+            conversation_id = uuid.uuid4().hex
+            db.execute('INSERT INTO conversations VALUES(?,?,?)', (conversation_id,base_id,time.time()))
+            return conversation_id
+
+    def turns(self, base_id, conversation_id):
+        return [h for h in reversed(self.history(base_id)) if h['result'].get('conversation_id') == conversation_id][-4:]
+
     def db(self):
         db = sqlite3.connect(self.path, timeout=15)
         db.row_factory = sqlite3.Row

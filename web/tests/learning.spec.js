@@ -23,7 +23,7 @@ test('register, upload, ask, practice and review',async({page})=>{
   await expect(page.getByRole('button',{name:'提交答案'})).toHaveCount(5);
   await page.getByRole('radio').first().check();
   await page.getByRole('button',{name:'提交答案'}).first().click();
-  await expect(page.locator('.feedback')).toContainText('正确选项');
+  await expect(page.locator('.feedback')).toContainText('正确答案');
   await page.getByRole('button',{name:'学习记录',exact:true}).click();
   await expect(page.getByRole('heading',{name:'建议复习顺序'})).toBeVisible();
   await expect(page.getByText('1 次练习',{exact:false})).toBeVisible();
