@@ -1,0 +1,2 @@
+# Only PDF parsing requires an external dependency. TXT/MD work with Python alone.
+pypdf>=5.0,<7.0
