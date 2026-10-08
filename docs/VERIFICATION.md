@@ -13,10 +13,10 @@
 | 真实模型 | GitHub real-model 实际下载并运行 qwen3:0.6b 和 qwen3-embedding:0.6b；2 条 1024 维向量成功入库，语义 Top1 命中正确资料，生成回答含合法引用，自动提取 2 条通过原文校验的关系 |
 | 算法评估 | 3 条人工问题、5 种离线模式运行成功；只用于冒烟检查，不可作为论文效果结论 |
 | Bash | start.sh 与 setup-models.sh 语法检查通过 |
-| Windows PowerShell | 新增 Windows CI：解析并以 Docker/网络替身运行配置与启动逻辑；不等于 Windows 容器实际部署，最终结果以 Actions 为准 |
+| Windows PowerShell | Windows GitHub runner 通过语法解析、模型配置备份、模型更换与启动逻辑检查；Docker/网络/浏览器为替身，不等于 Windows 容器实际部署 |
 | 中文 OCR 效果 | Docker 安装 chi_sim；当前效果测试为英文，中文识别准确率未评测 |
 
-已通过的云端代码检查：`dd3b51d7b691cdd39efce0b14510f0dd85277c0f`，运行 https://github.com/zhe177234-beep/continue/actions/runs/37809933336 （test、docker-smoke、real-model 全部 success）。简答、前置路径和扩展浏览器检查在后续提交再次验证，结果以对应 Actions 为准。
+已通过的云端代码检查：`dd3b51d7b691cdd39efce0b14510f0dd85277c0f`，运行 https://github.com/zhe177234-beep/continue/actions/runs/37809933336 （test、docker-smoke、real-model 全部 success）。最终代码提交 `3d11b150fa1a30bad83ae101cdcba75c2f762f0a` 再次通过 https://github.com/zhe177234-beep/continue/actions/runs/37810890911 ：test、docker-smoke、real-model、windows-scripts 四项全部 success；包含 20 项 Python 测试、3 项 Java 测试与五题型浏览器流程。后续提交仅记录验证结果。
 
 真实模型检查只证明连通性、向量检索和输出契约，不证明教学回答或知识关系的领域正确率。轻量模型可能回答不佳，系统会在模型异常或引用无效时降级到原文摘录。自动关系校验实体及原文摘录，无法自动证明谓词含义正确。
 
