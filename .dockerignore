@@ -1,0 +1,9 @@
+.git
+**/node_modules
+**/__pycache__
+**/target
+**/dist
+data
+.env
+.venv
+**/test-results

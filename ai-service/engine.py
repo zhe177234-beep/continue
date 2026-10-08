@@ -5,6 +5,8 @@ import io
 import math
 import re
 import sqlite3
+import os
+import zipfile
 from pathlib import Path
 
 MAX_FILE = 3 * 1024 * 1024
@@ -45,8 +47,42 @@ def parse_document(name, data):
             raise
         except Exception:
             raise ValueError("PDF 解析失败，请检查文件") from None
+    elif suffix in {'.docx', '.pptx'}:
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                if len(archive.infolist()) > 5000 or sum(x.file_size for x in archive.infolist()) > 25 * 1024 * 1024:
+                    raise ValueError('Office 文件解压后过大')
+            if suffix == '.docx':
+                from docx import Document
+                document = Document(io.BytesIO(data))
+                text = '\n'.join(p.text for p in document.paragraphs)
+                text += '\n' + '\n'.join(' | '.join(c.text for c in row.cells) for table in document.tables for row in table.rows)
+                pages = [(1, text)]
+            else:
+                from pptx import Presentation
+                presentation = Presentation(io.BytesIO(data))
+                if len(presentation.slides) > 100: raise ValueError('PPT 不能超过 100 页')
+                pages = [(i + 1, '\n'.join(shape.text for shape in slide.shapes if shape.has_text_frame)) for i, slide in enumerate(presentation.slides)]
+        except ValueError:
+            raise
+        except Exception:
+            raise ValueError('Office 文档解析失败，仅支持 DOCX/PPTX') from None
+    elif suffix in {'.png', '.jpg', '.jpeg'}:
+        if os.getenv('ENABLE_OCR', 'false').lower() != 'true':
+            raise ValueError('图片 OCR 未启用；设置 ENABLE_OCR=true 并安装 Tesseract')
+        try:
+            from PIL import Image
+            import pytesseract
+            image = Image.open(io.BytesIO(data))
+            if image.width * image.height > 16_000_000: raise ValueError('图片像素过大')
+            text = pytesseract.image_to_string(image, lang=os.getenv('OCR_LANG', 'chi_sim+eng'), timeout=20)
+            pages = [(1, text)]
+        except ValueError:
+            raise
+        except Exception:
+            raise ValueError('OCR 失败，请检查图片、Tesseract 和语言包') from None
     else:
-        raise ValueError("仅支持 TXT、Markdown、文本型 PDF")
+        raise ValueError("支持 TXT、Markdown、PDF、DOCX、PPTX；图片需启用 OCR")
     if sum(len(t) for _, t in pages) > 1_000_000:
         raise ValueError("解析后的文本过大")
     if not any(t.strip() for _, t in pages):
@@ -69,6 +105,9 @@ class Engine:
                 CREATE TABLE IF NOT EXISTS relations(
                   chunk_id TEXT REFERENCES chunks(id) ON DELETE CASCADE,
                   subject TEXT, predicate TEXT, object TEXT);
+                CREATE TABLE IF NOT EXISTS embeddings(
+                  chunk_id TEXT PRIMARY KEY REFERENCES chunks(id) ON DELETE CASCADE,
+                  model TEXT NOT NULL, vector TEXT NOT NULL);
             """)
 
     def connect(self):

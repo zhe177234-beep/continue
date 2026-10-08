@@ -4,3 +4,10 @@ __pycache__/
 .venv/
 .env
 evaluation-results.json
+node_modules/
+dist/
+target/
+.pytest_cache/
+playwright-report/
+test-results/
+*.log

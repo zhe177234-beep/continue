@@ -1,21 +1,47 @@
 services:
-  knowledge:
+  ai:
     build:
       context: .
       dockerfile: deploy/Dockerfile
-    ports:
-      - "127.0.0.1:8000:8000"
     environment:
-      HOST: "0.0.0.0"
-      DB_PATH: "/app/data/knowledge.db"
-      APP_TOKEN: "${APP_TOKEN:?Set APP_TOKEN with at least 16 characters}"
+      DATA_DIR: /app/data/v2
+      ALLOW_REGISTRATION: "${ALLOW_REGISTRATION:-true}"
+      COOKIE_SECURE: "${COOKIE_SECURE:-false}"
+      ENABLE_OCR: "${ENABLE_OCR:-true}"
+      OCR_LANG: "${OCR_LANG:-chi_sim+eng}"
+      OLLAMA_URL: "${OLLAMA_URL:-http://ollama:11434}"
+      CHAT_MODEL: "${CHAT_MODEL:-}"
+      EMBEDDING_MODEL: "${EMBEDDING_MODEL:-}"
     volumes:
       - knowledge-data:/app/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "import os,urllib.request; r=urllib.request.Request('http://127.0.0.1:8000/api/health',headers={'Authorization':'Bearer '+os.environ['APP_TOKEN']}); urllib.request.urlopen(r,timeout=3)"]
-      interval: 30s
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=3)"]
+      interval: 10s
       timeout: 5s
       retries: 3
+  gateway:
+    build: ./server
+    environment:
+      AI_URL: http://ai:8000
+    depends_on:
+      ai:
+        condition: service_healthy
+    restart: unless-stopped
+  web:
+    build: ./web
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8080}:80"
+    depends_on:
+      gateway:
+        condition: service_started
+    restart: unless-stopped
+  ollama:
+    image: ollama/ollama:latest
+    profiles: [models]
+    volumes:
+      - model-data:/root/.ollama
+    restart: unless-stopped
 volumes:
   knowledge-data:
+  model-data:
