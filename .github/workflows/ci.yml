@@ -75,3 +75,9 @@ jobs:
           EMBEDDING_MODEL: qwen3-embedding:0.6b
       - run: docker logs model
         if: failure()
+  windows-scripts:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/test-startup.ps1
+        shell: pwsh

@@ -49,19 +49,20 @@ def test_grounded_graph_and_two_hop(tmp_path):
 def test_all_quiz_types_and_exact_short_grading(tmp_path):
     client,base,_=seeded(create_app(tmp_path,FakeModel()))
     app=client.app
-    for kind in ['single','multiple','judge','short']:
+    for kind in ['single','multiple','judge','short','essay']:
         response=client.post(f'/api/bases/{base}/quizzes',json={'count':2,'kind':kind})
         assert response.status_code==200,response.text
         q=response.json()[0]
         with app.state.store.db() as db:
             row=db.execute('SELECT answer FROM quizzes WHERE id=?',(q['id'],)).fetchone()
         import json
-        answer=json.loads(row[0]) if kind=='multiple' else row[0]
+        answer=json.loads(row[0]) if kind in ('multiple','essay') else row[0]
+        if kind=='essay': answer='；'.join(answer)
         result=client.post(f'/api/bases/{base}/quizzes/{q["id"]}/submit',json={'selected':answer})
         assert result.status_code==200,result.text
         assert result.json()['correct']
         assert client.post(f'/api/bases/{base}/quizzes/{q["id"]}/submit',json={'selected':answer}).status_code==400
-    assert sum(x['attempts'] for x in client.get(f'/api/bases/{base}/progress').json()['mastery'])==4
+    assert sum(x['attempts'] for x in client.get(f'/api/bases/{base}/progress').json()['mastery'])==5
 
 
 def test_jobs_authorization_completion_and_restart(tmp_path):
@@ -97,3 +98,16 @@ def test_scanned_pdf_ocr(monkeypatch):
     buffer=io.BytesIO();pdf=canvas.Canvas(buffer,pagesize=(700,180));pdf.drawImage(ImageReader(image),0,20,width=700,height=140);pdf.save()
     pages=parse_document('scan.pdf',buffer.getvalue())
     assert pages[0][0]==1 and 'gradient' in pages[0][1].lower()
+
+
+def test_prerequisite_order_and_cycle(tmp_path):
+    from learning import progress
+    store=Store(tmp_path/'store');store.register('student','safe-password')
+    user=store.user(store.login('student','safe-password'));base=store.new_base(user['id'],'课程')['id']
+    index=Engine(tmp_path/'index.db')
+    index.ingest('a.txt','关系：高级概念|依赖|基础概念\n关系：基础概念|描述|例子'.encode())
+    result=progress(store,index,base)
+    assert [x['topic'] for x in result['path']]==['基础概念','高级概念']
+    assert not result['prerequisite_cycle']
+    index.ingest('b.txt','关系：基础概念|依赖|高级概念'.encode())
+    assert progress(store,index,base)['prerequisite_cycle']

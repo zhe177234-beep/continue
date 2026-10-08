@@ -14,7 +14,7 @@ class Ollama:
 
     def post(self, endpoint, payload):
         # Server-owned URL only; users cannot supply an arbitrary request target.
-        with httpx.Client(timeout=180, trust_env=False) as client:
+        with httpx.Client(timeout=90, trust_env=False) as client:
             response = client.post(self.url + endpoint, json=payload)
             response.raise_for_status()
             return response.json()

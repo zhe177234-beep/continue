@@ -12,12 +12,12 @@ for ($i=0;$i -lt 30;$i++) {
 }
 if (-not $ready) {throw 'Ollama 未就绪，请检查容器日志。'}
 foreach ($model in @($ChatModel,$EmbeddingModel)) {
-    if ($model -notmatch '^[a-zA-Z0-9._:/-]+$') {throw '模型名称格式无效。'}
+    if ($model -notmatch '^[a-zA-Z0-9][a-zA-Z0-9._:/-]*$') {throw '模型名称格式无效。'}
     docker compose exec -T ollama ollama pull $model
     if ($LASTEXITCODE -ne 0) {throw "下载 $model 失败。可以重新执行，已下载内容会保留。"}
 }
 Copy-Item '.env' '.env.before-models' -Force
-$lines=Get-Content '.env' | Where-Object {$_ -notmatch '^(CHAT_MODEL|EMBEDDING_MODEL|OLLAMA_URL)='}
+$lines=@(Get-Content '.env' | Where-Object {$_ -notmatch '^(CHAT_MODEL|EMBEDDING_MODEL|OLLAMA_URL)='})
 $lines+=@("CHAT_MODEL=$ChatModel","EMBEDDING_MODEL=$EmbeddingModel",'OLLAMA_URL=http://ollama:11434')
 [System.IO.File]::WriteAllLines((Join-Path (Get-Location) '.env'),$lines,(New-Object System.Text.UTF8Encoding($false)))
 & "$PSScriptRoot/start.ps1"

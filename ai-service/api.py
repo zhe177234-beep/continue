@@ -42,7 +42,7 @@ class Question(BaseModel):
 
 
 class QuizInput(BaseModel):
-    kind: Literal['single','multiple','judge','short'] = 'single'
+    kind: Literal['single','multiple','judge','short','essay'] = 'single'
     count: int = Field(default=5, ge=1, le=10, strict=True)
 
 
@@ -53,7 +53,7 @@ class Submission(BaseModel):
 def create_app(directory=None, model=None):
     store = Store(directory or os.getenv('DATA_DIR', str(Path(__file__).resolve().parent.parent / 'data' / 'v2')))
     model = model or Ollama()
-    app = FastAPI(title='智学学习知识系统', version='0.2.0')
+    app = FastAPI(title='智学学习知识系统', version='0.3.0')
     app.state.store = store
     jobs = Jobs(store)
     app.state.jobs = jobs
@@ -113,7 +113,7 @@ def create_app(directory=None, model=None):
 
     @app.get('/api/health')
     def health():
-        return {'status': 'ok', 'version': '0.2.0', 'chat_model_configured': bool(model.model), 'embedding_model_configured': bool(model.embedding_model)}
+        return {'status': 'ok', 'version': '0.3.0', 'chat_model_configured': bool(model.model), 'embedding_model_configured': bool(model.embedding_model)}
 
     @app.post('/api/auth/register', status_code=201)
     def register(body: Credentials, request: Request):

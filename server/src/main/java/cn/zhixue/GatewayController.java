@@ -12,7 +12,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Set;
 
-/** API boundary. Account/learning persistence lives in the Python service in v0.2. */
+/** API boundary. Account/learning persistence lives in the Python service in v0.3. */
 @RestController
 public class GatewayController {
     private final HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(5)).build();
@@ -36,7 +36,7 @@ public class GatewayController {
         // Encode the path only; never use an incoming URL/Host as the upstream target.
         String path = incoming.getRequestURI();
         if (!path.startsWith("/api/") || path.contains("..") || path.contains("%")) return error(400, "无效接口路径");
-        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(upstream + path)).timeout(Duration.ofSeconds(180));
+        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(upstream + path)).timeout(Duration.ofSeconds(210));
         for (String name : Set.of("Content-Type", "Cookie")) {
             String value = incoming.getHeader(name);
             if (value != null) request.header(name, value);

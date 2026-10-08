@@ -28,14 +28,17 @@ def generate_quiz(store, engine, base_id, count, kind="single"):
             stem = f'根据资料，“{r["subject"]}”的“{r["predicate"]}”对象是什么？'
             answer = options.index(r['object'])
             if kind == 'multiple':
-                options = sorted(valid) + distractors[:2]
+                options = sorted(valid)[:6] + distractors[:2]
                 random.SystemRandom().shuffle(options)
                 answer = json.dumps([i for i,o in enumerate(options) if o in valid])
-                stem = f'根据资料，“{r["subject"]}”的“{r["predicate"]}”对象有哪些？请选择全部正确选项。'
+                stem = f'根据资料，“{r["subject"]}”的“{r["predicate"]}”对象有哪些？从下列选项中选择全部正确项。'
             elif kind == 'judge':
                 negate = random.SystemRandom().choice([True,False])
                 stem = f'判断：资料{ "未指出" if negate else "指出" }“{r["subject"]} — {r["predicate"]} — {r["object"]}”。'
                 options,answer = ['错误','正确'], int(not negate)
+            elif kind == 'essay':
+                options,answer = [], json.dumps(sorted(set([r['subject'],r['predicate'],r['object']])),ensure_ascii=False)
+                stem = f'请用自己的话说明“{r["subject"]}”与“{r["object"]}”的“{r["predicate"]}”关系。'
             elif kind == 'short':
                 options,answer = [], r['object']
                 stem += ' 请填写资料中的对象名称。'
@@ -61,14 +64,20 @@ def submit(store, base_id, quiz_id, selected):
             if not isinstance(selected,list) or not selected or any(type(i) is not int or not 0 <= i < len(options) for i in selected) or len(set(selected)) != len(selected): raise ValueError('多选答案格式无效')
             answer = json.loads(answer)
             correct = set(selected) == set(answer)
+        elif kind == 'essay':
+            if not isinstance(selected,str) or not selected.strip() or len(selected)>500: raise ValueError('简答内容须为 1–500 字符')
+            answer = json.loads(answer)
+            hits = sum(word.casefold() in selected.casefold() for word in answer)
+            score = round(hits / len(answer),3)
+            correct = hits == len(answer)
         else:
             if not isinstance(selected,str) or not selected.strip() or len(selected)>500: raise ValueError('填空答案须为 1–500 字符')
             correct = selected.strip().casefold() == str(answer).strip().casefold()
-        stored = json.dumps(selected,ensure_ascii=False) if kind in ('multiple','short') else selected
+        stored = json.dumps(selected,ensure_ascii=False) if kind in ('multiple','short','essay') else selected
         if db.execute('SELECT 1 FROM attempts WHERE quiz_id=?', (quiz_id,)).fetchone():
             raise ValueError('题目已经提交，重复提交不会更新掌握度')
         db.execute('INSERT INTO attempts VALUES(?,?,?,?,?)', (uuid.uuid4().hex, quiz_id, stored, int(correct), time.time()))
-        return {'correct': correct, 'answer': answer, 'kind':kind, 'explanation': q['explanation'], 'source': q['source']}
+        return {'correct': correct, 'answer': answer, 'kind':kind, 'score':score if kind=='essay' else int(correct), 'grading_method':'关键词覆盖，不判断推理正确性' if kind=='essay' else '标准答案匹配', 'explanation': q['explanation'], 'source': q['source']}
 
 
 def progress(store, engine, base_id):
@@ -83,7 +92,22 @@ def progress(store, engine, base_id):
         value = (row['correct'] + 1) / (row['attempts'] + 2)
         mastery.append({'topic': topic, 'attempts': row['attempts'], 'correct': row['correct'], 'mastery': round(value, 3)})
     priority = sorted(mastery, key=lambda r: (r['mastery'], -r['attempts'], r['topic']))
+    prerequisites = {topic:set() for topic in topics}
+    for edge in engine.graph():
+        if edge['predicate'] in ('依赖','前置','先修','需要先掌握') and edge['object'] in topics and edge['object'] != edge['subject']:
+            prerequisites.setdefault(edge['subject'],set()).add(edge['object'])
+    ordered, remaining, covered = [], list(priority), set()
+    cycle = False
+    while remaining:
+        ready = next((r for r in remaining if prerequisites.get(r['topic'],set()) <= covered),None)
+        if ready is None:
+            cycle = True
+            ordered.extend(remaining)
+            break
+        remaining.remove(ready);ordered.append(ready);covered.add(ready['topic'])
+    priority = ordered
+    for r in priority: r['prerequisites'] = sorted(prerequisites.get(r['topic'],set()))
     for r in mistakes:
         r['options'] = json.loads(r['options'])
-        if r['kind'] == 'multiple': r['answer'] = json.loads(r['answer'])
-    return {'mastery': mastery, 'mistakes': mistakes, 'path': [dict(r, reason='先复习错题与引用原文' if r['attempts'] else '尚未练习，建议先阅读资料') for r in priority], 'method': 'Beta(1,1) 平滑正确率；小样本启发式，不是经过验证的认知诊断模型'}
+        if r['kind'] in ('multiple','essay'): r['answer'] = json.loads(r['answer'])
+    return {'mastery': mastery, 'mistakes': mistakes, 'path': [dict(r, reason='先复习错题与引用原文' if r['attempts'] else '尚未练习，建议先阅读资料') for r in priority], 'prerequisite_cycle':cycle, 'method': 'Beta(1,1) 平滑正确率；小样本启发式，不是经过验证的认知诊断模型'}

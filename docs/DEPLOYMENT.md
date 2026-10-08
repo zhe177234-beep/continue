@@ -14,8 +14,8 @@
 | 镜像、pip 或 Maven 下载失败 | 检查电脑网络、Docker 代理设置；重新运行构建，不要跳过测试掩盖失败 |
 | 8080 被占用 | 在 .env 设置 WEB_PORT=8082 后重建，访问 localhost:8082 |
 | 网页打开但接口失败 | 查看 gateway 与 ai 日志；确认 /api/health 为 ok |
-| 文档入库失败 | 单文件≤3 MiB，文本为 UTF-8，PDF≤100 页且含文本，不支持扫描 PDF |
-| OCR 失败 | 图片需启用 ENABLE_OCR；非 Docker 方式需要 Tesseract 与 chi_sim/eng 语言包 |
+| 文档入库失败 | 单文件≤3 MiB，文本为 UTF-8，PDF≤100 页；扫描页 OCR 每次最多 20 页，需要启用 OCR |
+| OCR 失败 | 图片需启用 ENABLE_OCR；非 Docker 方式需要 Tesseract 与 chi_sim/eng 语言包，扫描 PDF 还需 Poppler |
 | 语义索引返回 503 | 确认模型容器启动、模型已下载、EMBEDDING_MODEL 名称正确且内存足够 |
 | 提示降级为原文 | 模型未配置、不可达、推理失败或生成引用不合格；查看模型日志 |
 | 切换模型后结果异常 | 点击更新语义索引，旧模型向量不会作为当前模型索引使用 |
@@ -29,3 +29,6 @@
 安装开发依赖后运行 `python scripts/smoke.py --url http://localhost:8080`。它会新增独立测试账号及空知识库，测试文档完成后会删除；测试账号不会自动删除。
 
 默认配置针对电脑本机运行。云端公网部署尚未在本次任务执行：需 HTTPS 反向代理、安全 Cookie、注册策略、网关限流、独立解析工作进程及备份方案。服务端 SQLite 当前适合小规模演示，并非大并发生产架构。
+
+
+默认模型安装入口与明天操作见 [TOMORROW.md](TOMORROW.md)。模型脚本只修改当前项目 `.env`，保留修改前配置备份；Docker Desktop/网络/电脑资源仍需要实机确认。

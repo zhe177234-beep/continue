@@ -1,17 +1,18 @@
 # 智学 · 个性化学习知识系统
 
-智能科学与技术本科毕设工程项目，v0.2。提供资料入库、带原文出处问答、知识关系练习、错题与学习统计的完整应用流程。
+智能科学与技术本科毕设工程项目，v0.3。提供资料入库、带原文出处问答、知识关系练习、错题与学习统计的完整应用流程。
 
-**当前实现：Vue 3 + Spring Boot API 网关 + FastAPI + SQLite + 可选 Ollama。** Spring Boot 负责入口转发与请求边界；账号、知识库和学习业务暂由 Python 服务持久化。PostgreSQL/pgvector、完整 GraphRAG、自动实体抽取和自主 Agent 尚未实现，不能把本版当作原始规划的全部终版。
+**当前实现：Vue 3 + Spring Boot API 网关 + FastAPI + SQLite + 可选 Ollama。** Spring Boot 负责入口转发与请求边界；账号、知识库和学习业务暂由 Python 服务持久化。PostgreSQL/pgvector、社区摘要式完整 GraphRAG 和自主 Agent 尚未实现，不能把本版当作原始规划的全部终版。
 
 ## 功能
 
 - 账号注册、登录、退出；scrypt 密码哈希、服务端会话、HttpOnly Cookie；知识库按账号隔离。
-- 每个账号创建多个知识库，上传 TXT/MD、文本型 PDF、DOCX/PPTX；启用 OCR 后支持 PNG/JPG 文字识别。
+- 每个账号创建多个知识库，上传 TXT/MD、文本或扫描 PDF、DOCX/PPTX；启用 OCR 后支持 PNG/JPG 文字识别。
 - 文件大小与解压大小限制、SHA256 去重、分块持久化、文档原始页码或幻灯片编号。
-- BM25、词频余弦、RRF 混合检索、显式关系一跳增强和关键词规则路由。
+- BM25、词频余弦、RRF 混合检索、知识关系两跳增强和关键词规则路由。
 - 可选 Ollama 语义向量索引及生成回答；模型失败或引用编号无效时回退到原文摘录。
-- 问答历史、关系选择题、自动批改、错题本、Beta 平滑正确率与复习优先级。
+- 多轮对话、新建对话、问答历史；原文校验的模型关系提取与后台任务状态。
+- 单选、多选、判断、对象填空、关键词评分简答；错题本、Beta 平滑正确率与前置知识复习顺序。
 - Docker 三服务启动、Windows/macOS/Linux 启动脚本、接口与算法说明、自动测试和 GitHub Actions。
 
 ## 电脑上运行：推荐 Docker
@@ -41,17 +42,17 @@ bash scripts/start.sh
 
 ## 可选：本地模型
 
-默认 CHAT_MODEL 与 EMBEDDING_MODEL 为空，不调用模型。可启动容器内 Ollama：
+Windows 一次下载模型并启动：
 
-```bash
-docker compose --profile models up -d ollama
-docker compose exec ollama ollama pull <你的聊天模型名称>
-docker compose exec ollama ollama pull <你的向量模型名称>
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\setup-models.ps1
 ```
 
-把 `.env` 中两个模型变量填为已下载的确切名称，再运行 `docker compose up -d ai`。在网页上传资料后点击“更新语义索引”。模型变更后必须重新建立索引。
+macOS/Linux：`bash scripts/setup-models.sh`。默认下载 qwen3:0.6b 与 qwen3-embedding:0.6b；真实生成、向量检索和自动关系提取已通过 GitHub 云端测试。脚本保留 `.env.before-models` 配置备份，写入模型名后启动全部应用；模型下载失败会停止并明确提示。
 
-Ollama 不映射到公网端口。默认 CPU 推理；GPU 需自行配置 Compose 的设备映射。模型大小、中文能力和运行资源取决于所选模型。实际模型推理尚未在当前开发环境验证；传输契约与失败降级通过测试替身验证。不要将引用编号校验理解为事实验证。
+上传后点击“更新语义索引”；在“知识关系”页可以自动抽取关系，任务进度显示在左侧。更换向量模型后需要重建索引。Ollama 没有公网端口，默认 CPU 推理；轻量模型可跑通接口，但领域回答质量需评测，引用编号校验不保证事实正确。
+
+完整明天操作见 [最短操作指南](docs/TOMORROW.md)。模型信息来自 [Ollama qwen3](https://ollama.com/library/qwen3) 和 [qwen3-embedding](https://ollama.com/library/qwen3-embedding)。
 
 ## 不使用 Docker 的开发方式
 
@@ -75,9 +76,9 @@ npm ci
 npm run dev
 ```
 
-打开 http://127.0.0.1:5173 。开发代理默认直接连接 AI 服务。API 文档：http://127.0.0.1:8000/docs 。非 Docker 方式默认关闭图片 OCR；启用时需要 Tesseract 和语言包。生成模型默认 URL 为本机 `http://127.0.0.1:11434`。
+打开 http://127.0.0.1:5173 。开发代理默认直接连接 AI 服务。API 文档：http://127.0.0.1:8000/docs 。非 Docker 方式默认关闭 OCR；启用时需要 Tesseract、chi_sim/eng 语言包，扫描 PDF 还需要 Poppler 的 pdftoppm。生成模型默认 URL 为本机 `http://127.0.0.1:11434`。
 
-Java 网关单独运行：`mvn -f server/pom.xml package`，然后 `java -jar server/target/learning-gateway-0.2.0.jar`。入口端口 8081；设置前端环境变量 `API_TARGET=http://127.0.0.1:8081` 后重新启动 Vite，可经网关访问。
+Java 网关单独运行：`mvn -f server/pom.xml package`，然后 `java -jar server/target/learning-gateway-0.3.0.jar`。入口端口 8081；设置前端环境变量 `API_TARGET=http://127.0.0.1:8081` 后重新启动 Vite，可经网关访问。
 
 ## 测试
 
@@ -105,9 +106,9 @@ npx playwright test
 
 ## 工程边界
 
-单文件 3 MiB，PDF/PPT 最多 100 页，每个知识库最多 2000 个片段，每账号最多 20 个知识库。DOCX 不保留原始分页，页码固定为 1。扫描 PDF、图片中的图表/公式语义理解尚未支持；图片 OCR 仅提取文字。
+单文件 3 MiB，PDF/PPT 最多 100 页，每个知识库最多 2000 个片段，每账号最多 20 个知识库。自动关系抽取每次最多 100 片段，更多资料请拆分知识库。DOCX 不保留原始分页，页码固定为 1。扫描 PDF 可对最多 20 个无文本页执行 OCR；图表/公式语义理解尚未支持，OCR 仅提取文字。
 
-知识关系来自显式三元组，不是自动抽取；复习顺序按平滑正确率排序，不是认知诊断或前置知识推理。向量以 SQLite JSON 持久化，查询时进行精确余弦计算，未采用 pgvector 或近似索引。没有多 Agent 自主执行。
+知识关系来自显式三元组或经原文校验的模型提取，谓词含义仍需复核。复习顺序结合已识别的前置关系与平滑正确率；简答评分仅检查关键词覆盖，不判断逻辑与同义表述。向量以 SQLite JSON 持久化，查询时进行精确余弦计算，未采用 pgvector 或近似索引。没有多 Agent 自主执行。
 
 部署默认用于本机和本科项目演示。公网部署需另行配置 HTTPS、关闭公开注册、设置安全 Cookie、网关限流、独立解析工作进程与数据库迁移。默认账号不存在，必须注册。
 

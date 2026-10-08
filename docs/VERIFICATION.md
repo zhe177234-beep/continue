@@ -1,27 +1,25 @@
-# v0.2 验证记录
+# v0.3 验证记录
 
-验证时间：2026-10-08。测试在开发容器中执行，不是在用户电脑执行。
+验证日期：2026-10-08 UTC（中国时间 10 月 9 日）。以下测试运行在开发环境和 GitHub 云端，未在用户电脑运行。
 
 | 检查 | 实际结果 |
 | --- | --- |
-| Python API / 检索 / 解析测试 | 14 项通过，无跳过；包含真实 PDF 页码、DOCX/PPTX、英文图片 OCR、并发去重、账号隔离、模型替身与故障降级 |
-| Spring Boot 单元测试 | 3 项通过，验证请求体、Cookie、状态转发、跨站拒绝与上游故障 |
-| Java 打包 | Maven package 成功，生成可执行 JAR |
-| Vue 生产构建 | npm run build 成功 |
-| 浏览器流程 | Chromium 中 1 条完整流程通过：注册、建库、上传、出处问答、练习、学习记录、退出；未捕获前端运行异常 |
-| Java + AI 实际链路 | smoke.py 通过：健康、登录、multipart 上传、引用、出题、评分、统计、删除与退出 |
-| 检索实验脚本 | 3 条人工问题、5 种离线模式运行成功，仅为冒烟检查 |
-| npm audit | 检查时报告 0 个已知漏洞，不能保证不存在未披露问题 |
-| Compose YAML / Bash | YAML 结构检查及 bash -n 通过 |
-| Docker 镜像 / Compose 实际启动 | 开发环境无 Docker；GitHub Actions docker-smoke 已实际构建启动三个服务并通过完整链路 |
-| PowerShell 启动脚本 | 已编写，当前 Linux 环境未实际执行 |
-| 中文 OCR | 容器配置安装 chi_sim 语言包；本地实测仅英文，中文效果未实测 |
-| 真实 Ollama 推理 | 未下载或运行真实模型；向量格式、引用编号、传输接口与故障降级通过替身测试 |
+| Python | 最新本地 20 项通过，无跳过；含账号隔离、解析、并发去重、多轮对话隔离、后台任务、自动关系原文校验、两跳检索、五种题型、前置排序与循环处理 |
+| Vue 构建 | 生产构建通过 |
+| 浏览器 | 完整流程通过；覆盖注册、上传、出处、追问、新对话、五种题型、学习记录、退出，无前端运行异常 |
+| 图片与扫描 PDF | 真实英文图片 OCR 和扫描 PDF OCR 通过；PDF OCR 保留页码 |
+| Java | GitHub test 任务完成 Maven package 与 3 项网关测试 |
+| Docker | GitHub docker-smoke 实际构建并启动三服务，完整上传、问答、练习、删除链路通过 |
+| 真实模型 | GitHub real-model 实际下载并运行 qwen3:0.6b 和 qwen3-embedding:0.6b；2 条 1024 维向量成功入库，语义 Top1 命中正确资料，生成回答含合法引用，自动提取 2 条通过原文校验的关系 |
+| 算法评估 | 3 条人工问题、5 种离线模式运行成功；只用于冒烟检查，不可作为论文效果结论 |
+| Bash | start.sh 与 setup-models.sh 语法检查通过 |
+| Windows PowerShell | 新增 Windows CI：解析并以 Docker/网络替身运行配置与启动逻辑；不等于 Windows 容器实际部署，最终结果以 Actions 为准 |
+| 中文 OCR 效果 | Docker 安装 chi_sim；当前效果测试为英文，中文识别准确率未评测 |
 
-真实链路测试发现并修复网关提前消费 multipart 上传内容的问题：关闭 Spring 的 multipart 解析，由 AI 服务解析原始上传。浏览器测试发现并修复退出后仍处于注册模式的问题。
+已通过的云端代码检查：`dd3b51d7b691cdd39efce0b14510f0dd85277c0f`，运行 https://github.com/zhe177234-beep/continue/actions/runs/37809933336 （test、docker-smoke、real-model 全部 success）。简答、前置路径和扩展浏览器检查在后续提交再次验证，结果以对应 Actions 为准。
 
-浏览器 CDN 在当前环境不可访问，使用独立 Chromium 可执行文件完成本地验证；仓库 Playwright 配置支持 CHROMIUM_PATH，同时保留正常的 Playwright 浏览器安装方式用于 CI 与用户电脑。
+真实模型检查只证明连通性、向量检索和输出契约，不证明教学回答或知识关系的领域正确率。轻量模型可能回答不佳，系统会在模型异常或引用无效时降级到原文摘录。自动关系校验实体及原文摘录，无法自动证明谓词含义正确。
 
-Docker 云端实测对应代码提交 `41806c91a97facad77c3632cb6f2b914e075c6b6`，运行记录：https://github.com/zhe177234-beep/continue/actions/runs/37806184363 。验证记录的后续更新只修改文档。
+后台任务使用一个有界线程队列，状态持久化；重启时将中断任务标记失败，可重新执行。不是分布式队列。当前部署使用单个 AI 服务进程，不支持以多 worker 同时管理该队列。
 
-GitHub CI 结果以 Actions 页面为准；PowerShell 和真实模型推理尚未实际验证。没有直接在用户电脑启动服务。
+浏览器 CDN 在当前开发网络无法使用正常安装路径，本地通过 CHROMIUM_PATH 指向独立 Chromium 验证；GitHub CI 使用正常 Playwright 下载。当前库依赖的 FastAPI TestClient 提示 httpx 的弃用警告，测试仍通过。
