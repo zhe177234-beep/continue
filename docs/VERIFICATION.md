@@ -13,7 +13,7 @@
 | 检索实验脚本 | 3 条人工问题、5 种离线模式运行成功，仅为冒烟检查 |
 | npm audit | 检查时报告 0 个已知漏洞，不能保证不存在未披露问题 |
 | Compose YAML / Bash | YAML 结构检查及 bash -n 通过 |
-| Docker 镜像 / Compose 实际启动 | 开发环境无 Docker，尚未运行；CI 已配置 docker-smoke 作业 |
+| Docker 镜像 / Compose 实际启动 | 开发环境无 Docker；GitHub Actions docker-smoke 已实际构建启动三个服务并通过完整链路 |
 | PowerShell 启动脚本 | 已编写，当前 Linux 环境未实际执行 |
 | 中文 OCR | 容器配置安装 chi_sim 语言包；本地实测仅英文，中文效果未实测 |
 | 真实 Ollama 推理 | 未下载或运行真实模型；向量格式、引用编号、传输接口与故障降级通过替身测试 |
@@ -22,4 +22,6 @@
 
 浏览器 CDN 在当前环境不可访问，使用独立 Chromium 可执行文件完成本地验证；仓库 Playwright 配置支持 CHROMIUM_PATH，同时保留正常的 Playwright 浏览器安装方式用于 CI 与用户电脑。
 
-GitHub CI 结果以 Actions 页面为准；提交配置不代表云端 CI 已执行通过。Docker、PowerShell 和真实模型检查未通过本地实测，不应描述为“全部部署完成”。
+Docker 云端实测对应代码提交 `41806c91a97facad77c3632cb6f2b914e075c6b6`，运行记录：https://github.com/zhe177234-beep/continue/actions/runs/37806184363 。验证记录的后续更新只修改文档。
+
+GitHub CI 结果以 Actions 页面为准；PowerShell 和真实模型推理尚未实际验证。没有直接在用户电脑启动服务。
