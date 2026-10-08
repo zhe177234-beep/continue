@@ -15,6 +15,10 @@
 - 单选、多选、判断、对象填空、关键词评分简答；错题本、Beta 平滑正确率与前置知识复习顺序。
 - Docker 三服务启动、Windows/macOS/Linux 启动脚本、接口与算法说明、自动测试和 GitHub Actions。
 
+## 前端与学习卡片
+
+学习工作台已优化桌面与手机布局，并集成 GrapesJS 可视化学习卡片。支持拖拽、样式调整、设备预览、浏览器草稿和独立 HTML 导出。草稿仅保存在当前浏览器。使用与扩展见 [前端说明](docs/FRONTEND.md)。
+
 ## 电脑上运行：推荐 Docker
 
 安装 Git 与 Docker Desktop，并先启动 Docker Desktop。在终端执行：
