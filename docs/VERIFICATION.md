@@ -76,6 +76,8 @@ MagicPath 设计预览构建成功，截图复查后修复预览中文字体；V
 
 本轮本机 Docker 引擎不可连接，未在本机重复确认容器链路或真实模型；GitHub CI 保留独立 Docker、模型与 Windows 脚本检查，并新增真实 1000/1001 页 PDF/PPTX 上传边界验证。云端结果需按本轮运行状态另行确认，不能套用旧提交的成功结果。
 
+云端代码提交 `9eab5110b063e57d57f02c13f376bff94cf85cfc` 已通过本轮 [GitHub 检查](https://github.com/zhe177234-beep/continue/actions/runs/38008054008)：test、docker-smoke、real-model、windows-scripts 四项均 success。Docker 日志确认精确 100 MiB DOCX 接受、超出 1 字节拒绝，真实 1000 页 PDF/PPTX 上传及末页引用成功，1001 页均拒绝；Java 4 项测试无失败或跳过，浏览器 7 项通过。真实模型检查实际运行 qwen3:0.6b 与 qwen3-embedding:0.6b，不代表教学质量已经评测。前端生产依赖审计本轮报告 0 个已知漏洞。之后的提交若仅记录结果，不代表又运行过代码检查。
+
 
 代码提交：`ea5fde623ae39028be5d8967b1100a145bc511d3`。云端运行：https://github.com/zhe177234-beep/continue/actions/runs/37824638576 ，test、docker-smoke、real-model、windows-scripts 四项全部 success。
 
