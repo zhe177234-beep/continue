@@ -12,6 +12,25 @@
 - 练习与记录：题型选择、选中状态、不同批改反馈、掌握度进度与错题历史。
 - 键盘使用：跳到学习内容、焦点提示、明确的按钮名称；编辑器组件可用 Enter/空格插入。
 
+## 高级工作台视觉升级（2026-10-10）
+
+使用 MagicPath 插件制作交互设计预览，然后将设计适配到现有 Vue 应用；没有用 React 预览替换项目，也没有增加新的运行时服务。
+
+- 深色功能导航、独立资料面板、浅色学习内容区；小屏改为可横向滚动的功能导航。
+- 学习概览显示当前知识库的真实资料数、关系数及练习作答次数；几何连接图是装饰，不是实际知识图谱。
+- 登录页、问答卡片、原文出处、知识关系、练习状态统一使用蓝灰与青绿配色。
+- 保留原有接口、账号隔离、后台任务、GraphRAG、自主 Agent 与 GrapesJS 编辑器。
+- 本地字体由应用打包，页面不需要加载外部字体服务。MagicPath 预览单独嵌入所需字体，避免中文显示为方框。
+- 100 MiB 文件、文字 PDF/PPT 1000 页、扫描 OCR 20 页限制保持不变。
+
+以下为新界面的真实浏览器截图，使用测试账号及示例资料：
+
+![新版登录页](preview/premium-login-desktop.jpg)
+
+![新版学习工作台](preview/premium-workspace-desktop.jpg)
+
+![新版手机工作台](preview/premium-workspace-mobile.jpg)
+
 ## 学习卡片
 
 在“学习卡片”页，从左侧拖拽或点击组件，双击画布文字进行编辑。支持标题、文字、知识卡片、双栏对照、重点提示和分隔线；右侧设置样式或查看图层。工具栏支持撤销、重做、桌面/平板/手机预览、保存草稿和导出 HTML。
@@ -30,6 +49,8 @@
 | --- | --- |
 | web/src/App.vue | 学习业务布局与现有接口交互 |
 | web/src/style.css | 颜色、文字、间距与手机布局 |
+| web/src/premium.css | 高级工作台主题与响应式布局；在基础样式之后加载 |
+| web/src/components/KnowledgeOrbit.vue | 无交互、无数据含义的装饰连接图 |
 | web/src/components/Icon.vue | 统一的 SVG 图标 |
 | web/src/components/PageDesigner.vue | GrapesJS 初始化、组件、草稿与导出 |
 | web/tests/frontend.spec.js | 真实拖拽、编辑、恢复、导出、设备与手机检查 |

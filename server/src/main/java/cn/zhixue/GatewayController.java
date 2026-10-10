@@ -31,8 +31,8 @@ public class GatewayController {
                 if (!URI.create(origin).getAuthority().equals(incoming.getHeader("Host"))) return error(403, "不允许跨站请求");
             } catch (Exception ex) { return error(403, "无效来源"); }
         }
-        byte[] body = incoming.getInputStream().readNBytes(10 * 1024 * 1024 + 65537);
-        if (body.length > 10 * 1024 * 1024 + 65536) return error(413, "请求过大");
+        byte[] body = incoming.getInputStream().readNBytes(100 * 1024 * 1024 + 65537);
+        if (body.length > 100 * 1024 * 1024 + 65536) return error(413, "请求过大");
         // Encode the path only; never use an incoming URL/Host as the upstream target.
         String path = incoming.getRequestURI();
         if (!path.startsWith("/api/") || path.contains("..") || path.contains("%")) return error(400, "无效接口路径");

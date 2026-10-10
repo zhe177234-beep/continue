@@ -117,7 +117,8 @@ def test_validation_and_csrf(app):
         assert client.post(f'/api/bases/{base}/ask',json=data).status_code == 422
     assert client.post(f'/api/bases/{base}/ask',json={'question':'x','mode':'semantic'}).status_code == 400
     assert client.post(f'/api/bases/{base}/documents',files={'file':('bad.txt',b'\xff')}).status_code == 400
-    assert client.post(f'/api/bases/{base}/documents',files={'file':('large.txt',b'x'*(10*1024*1024+1))}).status_code in {400,413}
+    from engine import MAX_FILE
+    assert client.post(f'/api/bases/{base}/documents',files={'file':('large.txt',b'x'*(MAX_FILE+1))}).status_code in {400,413}
 
 
 def test_office_parsers_and_corrupt_pdf():
@@ -208,7 +209,7 @@ def test_concurrent_duplicate_ingestion(tmp_path):
     assert len(index.documents())==1
 
 
-def test_actual_docx_exact_ten_mib_upload_boundary(app):
+def test_actual_docx_exact_hundred_mib_upload_boundary(app):
     import zipfile
     from docx import Document
     from engine import MAX_FILE
@@ -221,9 +222,80 @@ def test_actual_docx_exact_ten_mib_upload_boundary(app):
     with zipfile.ZipFile(buffer,'a',compression=zipfile.ZIP_STORED) as archive:
         archive.writestr(name,b'x'*padding)
     payload=buffer.getvalue()
-    assert len(payload)==10*1024*1024
-    response=client.post(f'/api/bases/{base}/documents',files={'file':('ten-mib.docx',payload)})
+    assert len(payload)==100*1024*1024
+    response=client.post(f'/api/bases/{base}/documents',files={'file':('hundred-mib.docx',payload)})
     assert response.status_code==201,response.text
     assert response.json()['chunks']>0
     rejected=client.post(f'/api/bases/{base}/documents',files={'file':('too-large.docx',payload+b'x')})
     assert rejected.status_code in (400,413)
+
+
+def test_actual_thousand_page_pdf_preserves_last_page_and_larger_index(tmp_path):
+    from reportlab.pdfgen import canvas
+    from engine import MAX_DOCUMENT_PAGES
+    buffer=io.BytesIO();pdf=canvas.Canvas(buffer,pageCompression=1)
+    for number in range(1,MAX_DOCUMENT_PAGES+1):
+        pdf.drawString(40,700,f'Chapter {number}: learning rate. '+('evidence '*150))
+        pdf.showPage()
+    pdf.save()
+    payload=buffer.getvalue()
+    index=Engine(tmp_path/'large-pdf.db')
+    result=index.ingest('thousand.pdf',payload)
+    assert result['chunks']>2000
+    with index.connect() as db:
+        assert db.execute('SELECT MAX(page) FROM chunks').fetchone()[0]==1000
+        assert 'Chapter 1000' in db.execute('SELECT text FROM chunks WHERE page=1000 AND position=0').fetchone()[0]
+    from pypdf import PdfReader, PdfWriter
+    writer=PdfWriter();writer.append(PdfReader(io.BytesIO(payload)));writer.add_blank_page(width=612,height=792)
+    oversized=io.BytesIO();writer.write(oversized)
+    with pytest.raises(ValueError,match='PDF 不能超过 1000 页'):
+        parse_document('thousand-and-one.pdf',oversized.getvalue())
+
+
+def test_actual_thousand_slide_pptx_preserves_last_page():
+    from pptx import Presentation
+    presentation=Presentation()
+    for number in range(1,1001):
+        slide=presentation.slides.add_slide(presentation.slide_layouts[5])
+        slide.shapes.title.text=f'Chapter {number}: learning rate'
+    buffer=io.BytesIO();presentation.save(buffer)
+    pages=parse_document('thousand.pptx',buffer.getvalue())
+    assert len(pages)==1000 and pages[-1][0]==1000 and 'Chapter 1000' in pages[-1][1]
+    presentation.slides.add_slide(presentation.slide_layouts[5])
+    oversized=io.BytesIO();presentation.save(oversized)
+    with pytest.raises(ValueError,match='PPT 不能超过 1000 页'):
+        parse_document('thousand-and-one.pptx',oversized.getvalue())
+
+
+def test_upload_limits_are_reported_and_parser_protections_remain(app,monkeypatch):
+    from engine import MAX_FILE, MAX_TEXT_CHARS, MAX_OFFICE_UNPACKED
+    limits=TestClient(app).get('/api/health').json()['limits']
+    assert limits=={'upload_bytes':100*1024*1024,'document_pages':1000,'ocr_pages':20}
+    assert MAX_FILE==100*1024*1024
+    with pytest.raises(ValueError,match='文本过大'):
+        parse_document('too-long.txt',b'x'*(MAX_TEXT_CHARS+1))
+    import zipfile
+    # A small ZIP bomb is still rejected before Office parsing allocates the contents.
+    monkeypatch.setattr('engine.MAX_OFFICE_UNPACKED',1024)
+    archive=io.BytesIO()
+    with zipfile.ZipFile(archive,'w',compression=zipfile.ZIP_DEFLATED) as zipped:
+        zipped.writestr('padding.bin',b'x'*1025)
+    with pytest.raises(ValueError,match='解压后过大'):
+        parse_document('bomb.docx',archive.getvalue())
+    assert MAX_OFFICE_UNPACKED==250*1024*1024
+    monkeypatch.setattr('engine.MAX_OFFICE_ENTRIES',2)
+    archive=io.BytesIO()
+    with zipfile.ZipFile(archive,'w') as zipped:
+        for number in range(3): zipped.writestr(f'entry-{number}',b'x')
+    with pytest.raises(ValueError,match='解压后过大'):
+        parse_document('too-many-parts.pptx',archive.getvalue())
+
+
+def test_scanned_pdf_keeps_twenty_page_ocr_limit(monkeypatch):
+    from pypdf import PdfWriter
+    writer=PdfWriter()
+    for _ in range(21): writer.add_blank_page(width=100,height=100)
+    buffer=io.BytesIO();writer.write(buffer)
+    monkeypatch.setenv('ENABLE_OCR','true')
+    with pytest.raises(ValueError,match='OCR 20 页'):
+        parse_document('twenty-one-scans.pdf',buffer.getvalue())

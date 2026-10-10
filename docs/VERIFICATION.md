@@ -1,3 +1,23 @@
+# 100 MiB / 1000 页本机容量调整
+
+验证日期：2026-10-09（北京时间）。按用户要求只更新本机，不上传 GitHub；下方历史云端记录不代表这次容量调整。
+
+- 单文件上限 104,857,600 字节，文字 PDF/PPT 最多 1000 页；用户选择保留扫描 PDF 最多 OCR 20 页。
+- 前端、Nginx、Java 网关及 Python 解析器均已更新，Docker 容器已重建并运行。健康接口的 limits 返回当前字节数、文档页数和 OCR 页数。
+- 36 项 Python 测试、4 项 Java 测试、6 条生产浏览器流程通过，无跳过；包含客户端超限拒绝、解析与入库边界检查。
+- 完整 Nginx → Java → FastAPI 链路实测：恰好 100 MiB DOCX 入库成功，增加 1 字节被拒绝；真实 1000 页 PDF 与 1000 页 PPTX 入库成功，均能检索第 1000 页出处；1001 页文件均被拒绝。
+- 原有注册、上传、问答、练习、学习统计、删除与退出链路通过。原有知识库及模型卷保留，测试使用独立账号并删除测试资料。
+- 配套安全上限为 1000 万文本字符、每库 20,000 分块、Office 解压 250 MiB / 50,000 条目。页面上限不是无限文本或不限内存承诺，GraphRAG 的模型调用与时间预算不变。
+
+复测命令（先安装 requirements-dev.txt；后三项针对已运行的本机服务）：
+
+```bash
+python -m pytest -q tests
+python scripts/upload_limit_smoke.py
+python scripts/document_limit_smoke.py
+python scripts/smoke.py
+```
+
 # v0.4 本机验证记录
 
 验证日期：2026-10-09（北京时间）；实际环境为用户的 Windows 电脑和 Docker Desktop，项目在 `D:\王爱哲\GitHub\continue`。
@@ -47,6 +67,15 @@
 
 
 # GrapesJS 前端优化验证
+
+## 2026-10-10 高级工作台与上传容量合并验证
+
+MagicPath 设计预览构建成功，截图复查后修复预览中文字体；Vue 生产构建成功。Windows 隔离 Python 3.12 环境运行 36 项测试：34 通过，2 项 OCR 实机检查因缺少 OCR 工具跳过，不记为通过。
+
+本地 Chromium 开发模式与生产构建预览分别通过 7 条流程：GraphRAG 社区与异步全局回答、Agent 进度/停止/出处、工作台真实统计与响应式导航、GrapesJS 拖拽/草稿/设备/导出、100 MiB 前端拦截、手机关系筛选/编辑器、完整学习流程。工作台检查覆盖 1440、1024、850、390、320 像素宽度，无文档横向溢出。本轮独立 FastAPI 环境也通过真实 1000 页 PDF/PPTX 上传、最后一页出处检索及 1001 页拒绝检查；这项本地检查未经过 Java/Nginx。
+
+本轮本机 Docker 引擎不可连接，未在本机重复确认容器链路或真实模型；GitHub CI 保留独立 Docker、模型与 Windows 脚本检查，并新增真实 1000/1001 页 PDF/PPTX 上传边界验证。云端结果需按本轮运行状态另行确认，不能套用旧提交的成功结果。
+
 
 代码提交：`ea5fde623ae39028be5d8967b1100a145bc511d3`。云端运行：https://github.com/zhe177234-beep/continue/actions/runs/37824638576 ，test、docker-smoke、real-model、windows-scripts 四项全部 success。
 

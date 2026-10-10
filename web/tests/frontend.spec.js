@@ -20,6 +20,38 @@ async function setup(page) {
     page.getByRole("button", { name: "上传并建立索引" }),
   ).toBeEnabled();
 }
+test("premium workspace uses real metrics and responsive navigation", async ({ page }) => {
+  const errors = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto("/");
+  await page.evaluate(() => document.fonts.ready);
+  await page.screenshot({ path: "test-results/premium-login-desktop.jpg", type: "jpeg", quality: 85, fullPage: true });
+  await setup(page);
+  const overview = page.getByRole("region", { name: "知识库概览" });
+  await expect(overview.locator(".overview-metrics strong")).toHaveText(["0份", "0条", "0次"]);
+  await page.locator("input[type=file]").setInputFiles(path.resolve("../datasets/machine-learning.md"));
+  await page.getByRole("button", { name: "上传并建立索引" }).click();
+  await expect(page.getByRole("status").first()).toContainText("入库完成");
+  await expect(overview.locator(".overview-metrics strong").first()).toHaveText("1份");
+  await expect(overview.locator(".overview-metrics strong").nth(1)).not.toHaveText("0条");
+  await page.evaluate(() => document.fonts.ready);
+  await page.screenshot({ path: "test-results/premium-workspace-desktop.jpg", type: "jpeg", quality: 85, fullPage: true });
+  for (const width of [1440, 1024, 850, 390, 320]) {
+    await page.setViewportSize({ width, height: 1000 });
+    for (const name of ["问答", "知识关系", "自主任务", "练习", "学习记录"]) {
+      const button = page.getByRole("navigation", { name: "学习功能" }).getByRole("button", { name, exact: true });
+      await button.click();
+      await expect(button).toHaveAttribute("aria-current", "page");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+    }
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "问答", exact: true }).click();
+  await page.screenshot({ path: "test-results/premium-workspace-mobile.jpg", type: "jpeg", quality: 85, fullPage: true });
+  expect(errors).toEqual([]);
+});
+
 test("GrapesJS blocks, draft restore, devices, sources and standalone export", async ({
   page,
 }) => {
@@ -141,6 +173,25 @@ test("GrapesJS blocks, draft restore, devices, sources and standalone export", a
     fullPage: true,
   });
   expect(errors).toEqual([]);
+});
+
+test("upload limits show 100 MiB / 1000 pages and reject oversized files before sending", async ({ page }) => {
+  // Simulate only the File.size boundary; actual 100 MiB multipart is checked in Docker.
+  await page.addInitScript(() => {
+    Object.defineProperty(File.prototype, "size", { get: () => 100 * 1024 * 1024 + 1 });
+  });
+  let uploaded = false;
+  page.on("request", request => {
+    if (request.method() === "POST" && /\/documents$/.test(request.url())) uploaded = true;
+  });
+  await setup(page);
+  await expect(page.locator(".upload-hint")).toContainText("100 MiB");
+  await expect(page.locator(".upload-hint")).toContainText("1000 页");
+  await expect(page.locator(".upload-hint")).toContainText("OCR 最多 20 页");
+  await page.locator("input[type=file]").setInputFiles({ name: "too-large.txt", mimeType: "text/plain", buffer: Buffer.from("sample") });
+  await page.getByRole("button", { name: "上传并建立索引" }).click();
+  await expect(page.getByRole("status").first()).toContainText("文件不能超过 100 MiB");
+  expect(uploaded).toBe(false);
 });
 test("mobile layout, keyboard blocks and knowledge filtering", async ({
   page,

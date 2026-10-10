@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, Depends, HTTPException, Request, Response, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator, StrictInt, StrictStr
-from engine import Engine, MAX_FILE
+from engine import Engine, MAX_FILE, MAX_DOCUMENT_PAGES, MAX_OCR_PAGES
 from models import Ollama
 from store import Store
 from retrieval import retrieve, reindex
@@ -142,7 +142,8 @@ def create_app(directory=None, model=None):
     @app.get('/api/health')
     def health():
         return {'status': 'ok', 'version': '0.4.0', 'chat_model_configured': bool(model.model), 'embedding_model_configured': bool(model.embedding_model),
-                'features':['community-graphrag','autonomous-multi-agent']}
+                'features':['community-graphrag','autonomous-multi-agent'],
+                'limits':{'upload_bytes':MAX_FILE,'document_pages':MAX_DOCUMENT_PAGES,'ocr_pages':MAX_OCR_PAGES}}
 
     @app.post('/api/auth/register', status_code=201)
     def register(body: Credentials, request: Request):

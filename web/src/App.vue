@@ -9,6 +9,7 @@ import {
 import Icon from "./components/Icon.vue";
 import CommunityPanel from "./components/CommunityPanel.vue";
 import AgentWorkbench from "./components/AgentWorkbench.vue";
+import KnowledgeOrbit from "./components/KnowledgeOrbit.vue";
 const PageDesigner = defineAsyncComponent(
   () => import("./components/PageDesigner.vue"),
 );
@@ -215,8 +216,8 @@ async function createBase() {
 async function upload() {
   await task(async () => {
     if (!file.value) throw new Error("请先选择资料");
-    if (file.value.size > 10 * 1024 * 1024)
-      throw new Error("文件不能超过 10 MiB");
+    if (file.value.size > 100 * 1024 * 1024)
+      throw new Error("文件不能超过 100 MiB");
     const body = new FormData();
     body.append("file", file.value);
     const r = await api(path() + "/documents", body);
@@ -471,6 +472,29 @@ onMounted(async () => {
     class="workspace"
     :class="{ 'designer-workspace': tab === '学习卡片' }"
   >
+    <aside class="primary-sidebar">
+      <div class="rail-label">WORKSPACE <span>学习空间</span></div>
+      <nav class="workspace-nav" aria-label="学习功能">
+        <button
+          v-for="item in navigation"
+          :key="item.name"
+          :class="{ selected: tab === item.name }"
+          :aria-current="tab === item.name ? 'page' : undefined"
+          @click="tab = item.name"
+        >
+          <Icon :name="item.icon" :size="19" /><span>{{ item.name }}</span>
+          <span v-if="item.name === '学习卡片'" class="new-tag">NEW</span>
+          <Icon v-else-if="tab === item.name" name="chevron" :size="14" class="nav-indicator" />
+        </button>
+      </nav>
+      <div class="rail-note">
+        <span class="rail-note-icon"><Icon name="spark" :size="22" /></span>
+        <strong>知识，有迹可循。</strong>
+        <p>从一份资料出发，建立理解，再连接新的可能。</p>
+        <span class="rail-note-foot">YOUR KNOWLEDGE, CONNECTED</span>
+      </div>
+      <div class="rail-bottom"><Icon name="shield" :size="15" />资料按账号隔离</div>
+    </aside>
     <aside class="resource-sidebar" :class="{ expanded: sidebarOpen }">
       <div class="sidebar-heading">
         <span class="eyebrow">YOUR LIBRARY</span
@@ -523,7 +547,7 @@ onMounted(async () => {
               :disabled="busy"
               @change="chooseFile"
           /></label>
-          <p class="hint upload-hint">每份最多 10 MiB；图片需启用 OCR。</p>
+          <p class="hint upload-hint">每份最多 100 MiB；PDF/PPT 最多 1000 页；扫描页 OCR 最多 20 页。</p>
           <button class="full" :disabled="busy" @click="upload">
             <Icon name="plus" :size="16" />上传并建立索引</button
           ><button
@@ -591,6 +615,19 @@ onMounted(async () => {
       </div>
     </aside>
     <section id="main-content" class="content-area">
+      <section v-if="tab !== '学习卡片'" class="workspace-overview" aria-label="知识库概览">
+        <div class="overview-copy">
+          <span class="eyebrow">A SPACE FOR YOUR NEXT IDEA</span>
+          <h2>把知识连接起来，<br /><span>让理解更进一步。</span></h2>
+          <p>从资料中寻找依据，在提问与练习中形成自己的理解。</p>
+        </div>
+        <KnowledgeOrbit class="overview-orbit" />
+        <div class="overview-metrics">
+          <div><span><Icon name="file" :size="16" />课程资料</span><strong>{{ documents.length }}<small>份</small></strong></div>
+          <div><span><Icon name="graph" :size="16" />知识关系</span><strong>{{ graph.length }}<small>条</small></strong></div>
+          <div><span><Icon name="check" :size="16" />练习作答</span><strong>{{ completedCount }}<small>次</small></strong></div>
+        </div>
+      </section>
       <div class="workspace-title">
         <div>
           <div class="breadcrumb">
@@ -610,18 +647,6 @@ onMounted(async () => {
           ><span>份课程资料</span>
         </div>
       </div>
-      <nav class="workspace-nav" aria-label="学习功能">
-        <button
-          v-for="item in navigation"
-          :key="item.name"
-          :class="{ selected: tab === item.name }"
-          :aria-current="tab === item.name ? 'page' : undefined"
-          @click="tab = item.name"
-        >
-          <Icon :name="item.icon" :size="18" />{{ item.name
-          }}<span v-if="item.name === '学习卡片'" class="new-tag">NEW</span>
-        </button>
-      </nav>
       <p
         class="status workspace-status"
         role="status"

@@ -14,7 +14,7 @@
 | 镜像、pip 或 Maven 下载失败 | 检查电脑网络、Docker 代理设置；重新运行构建，不要跳过测试掩盖失败 |
 | 8080 被占用 | 在 .env 设置 WEB_PORT=8082 后重建，访问 localhost:8082 |
 | 网页打开但接口失败 | 查看 gateway 与 ai 日志；确认 /api/health 为 ok |
-| 文档入库失败 | 单文件≤10 MiB，文本为 UTF-8，PDF≤100 页；解析文本≤100 万字符；扫描页 OCR 最多 20 页 |
+| 文档入库失败 | 单文件≤100 MiB，文本为 UTF-8，文字 PDF/PPT≤1000 页；解析文本≤1000 万字符、Office 解压≤250 MiB、知识库≤20,000 分块；扫描页 OCR 最多 20 页 |
 | OCR 失败 | 图片需启用 ENABLE_OCR；非 Docker 方式需要 Tesseract 与 chi_sim/eng 语言包，扫描 PDF 还需 Poppler |
 | 语义索引返回 503 | 确认模型容器启动、模型已下载、EMBEDDING_MODEL 名称正确且内存足够 |
 | 提示降级为原文 | 模型未配置、不可达、推理失败或生成引用不合格；查看模型日志 |

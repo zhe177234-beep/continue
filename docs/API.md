@@ -4,7 +4,7 @@ Docker 地址 http://localhost:8080；直接开发服务 http://127.0.0.1:8000�
 
 | 方法 | 路径 | 输入 / 用途 |
 | --- | --- | --- |
-| GET | /api/health | 服务版本与模型配置状态，无需登录 |
+| GET | /api/health | 服务版本、模型配置与 limits（upload_bytes、document_pages、ocr_pages），无需登录 |
 | POST | /api/auth/register | username：3–32 位字母数字下划线，password：10–128 字符 |
 | POST | /api/auth/login | 同上，设置会话 Cookie |
 | POST | /api/auth/logout | 空 JSON，撤销当前会话 |

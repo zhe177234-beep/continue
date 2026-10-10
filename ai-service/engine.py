@@ -11,7 +11,13 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-MAX_FILE = 10 * 1024 * 1024
+MAX_FILE = 100 * 1024 * 1024
+MAX_DOCUMENT_PAGES = 1000
+MAX_OFFICE_UNPACKED = 250 * 1024 * 1024
+MAX_OFFICE_ENTRIES = 50_000
+MAX_TEXT_CHARS = 10_000_000
+MAX_BASE_CHUNKS = 20_000
+MAX_OCR_PAGES = 20
 
 
 def tokens(text):
@@ -26,7 +32,7 @@ def tokens(text):
 
 def parse_document(name, data):
     if not data or len(data) > MAX_FILE:
-        raise ValueError("文件为空或超过 10 MiB")
+        raise ValueError("文件为空或超过 100 MiB")
     suffix = Path(name).suffix.lower()
     if suffix in {".txt", ".md"}:
         try:
@@ -42,12 +48,12 @@ def parse_document(name, data):
             reader = PdfReader(io.BytesIO(data))
             if reader.is_encrypted:
                 raise ValueError("不支持加密 PDF")
-            if len(reader.pages) > 100:
-                raise ValueError("PDF 不能超过 100 页")
+            if len(reader.pages) > MAX_DOCUMENT_PAGES:
+                raise ValueError(f"PDF 不能超过 {MAX_DOCUMENT_PAGES} 页")
             pages = [(i + 1, p.extract_text() or "") for i, p in enumerate(reader.pages)]
             blank = [i for i, (_,text) in enumerate(pages) if not text.strip()]
             if blank and os.getenv('ENABLE_OCR', 'false').lower() == 'true':
-                if len(blank)>20: raise ValueError('扫描 PDF 每次最多 OCR 20 页，请拆分文件')
+                if len(blank)>MAX_OCR_PAGES: raise ValueError(f'扫描 PDF 每次最多 OCR {MAX_OCR_PAGES} 页，请拆分文件')
                 from PIL import Image
                 import pytesseract
                 with tempfile.TemporaryDirectory(prefix='zhixue-pdf-') as folder:
@@ -67,7 +73,7 @@ def parse_document(name, data):
     elif suffix in {'.docx', '.pptx'}:
         try:
             with zipfile.ZipFile(io.BytesIO(data)) as archive:
-                if len(archive.infolist()) > 5000 or sum(x.file_size for x in archive.infolist()) > 25 * 1024 * 1024:
+                if len(archive.infolist()) > MAX_OFFICE_ENTRIES or sum(x.file_size for x in archive.infolist()) > MAX_OFFICE_UNPACKED:
                     raise ValueError('Office 文件解压后过大')
             if suffix == '.docx':
                 from docx import Document
@@ -78,7 +84,7 @@ def parse_document(name, data):
             else:
                 from pptx import Presentation
                 presentation = Presentation(io.BytesIO(data))
-                if len(presentation.slides) > 100: raise ValueError('PPT 不能超过 100 页')
+                if len(presentation.slides) > MAX_DOCUMENT_PAGES: raise ValueError(f'PPT 不能超过 {MAX_DOCUMENT_PAGES} 页')
                 pages = [(i + 1, '\n'.join(shape.text for shape in slide.shapes if shape.has_text_frame)) for i, slide in enumerate(presentation.slides)]
         except ValueError:
             raise
@@ -100,7 +106,7 @@ def parse_document(name, data):
             raise ValueError('OCR 失败，请检查图片、Tesseract 和语言包') from None
     else:
         raise ValueError("支持 TXT、Markdown、PDF、DOCX、PPTX；图片需启用 OCR")
-    if sum(len(t) for _, t in pages) > 1_000_000:
+    if sum(len(t) for _, t in pages) > MAX_TEXT_CHARS:
         raise ValueError("解析后的文本过大")
     if not any(t.strip() for _, t in pages):
         raise ValueError("未提取到文本；扫描 PDF 需启用 OCR 并安装 Poppler/Tesseract")
@@ -161,8 +167,8 @@ class Engine:
                     if part:
                         chunks.append((f"{doc_id}:{page}:{position}", doc_id, page, position, part))
             count = db.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
-            if count + len(chunks) > 2000:
-                raise ValueError("演示知识库最多容纳 2000 个分块，请删除旧资料后重试")
+            if count + len(chunks) > MAX_BASE_CHUNKS:
+                raise ValueError(f"知识库最多容纳 {MAX_BASE_CHUNKS} 个分块，请删除旧资料后重试")
             db.execute("INSERT INTO documents(id,name,digest) VALUES(?,?,?)", (doc_id, name, digest))
             db.executemany("INSERT INTO chunks VALUES(?,?,?,?,?)", chunks)
             self.invalidate_graph(db)
